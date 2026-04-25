@@ -7,6 +7,19 @@ function serializeTokenState(tokenState) {
   });
 }
 
+function parseTokenState(raw) {
+  if (!raw) return { token: "", refreshToken: "" };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      token: parsed.token || "",
+      refreshToken: parsed.refreshToken || "",
+    };
+  } catch (error) {
+    return { token: "", refreshToken: "" };
+  }
+}
+
 function extractTokenState(request) {
   const headers = request.headers || {};
   const token = headers.token || headers.Token || "";
@@ -14,6 +27,17 @@ function extractTokenState(request) {
   const refreshToken = url.searchParams.get("refreshToken") || "";
 
   return { token, refreshToken };
+}
+
+function hasTokenState(tokenState) {
+  return Boolean(tokenState.token || tokenState.refreshToken);
+}
+
+function mergeTokenState(previousState, nextState) {
+  return {
+    token: nextState.token || previousState.token || "",
+    refreshToken: nextState.refreshToken || previousState.refreshToken || "",
+  };
 }
 
 function writeTokenState(store, tokenState) {
@@ -26,8 +50,9 @@ function runCapture(options = {}) {
   const done = options.done || $done;
   const tokenState = extractTokenState(request);
 
-  if (tokenState.token || tokenState.refreshToken) {
-    writeTokenState(store, tokenState);
+  if (hasTokenState(tokenState)) {
+    const previousTokenState = parseTokenState(store.read(TOKEN_STATE_KEY));
+    writeTokenState(store, mergeTokenState(previousTokenState, tokenState));
   }
 
   done({});

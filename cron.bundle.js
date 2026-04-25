@@ -33,12 +33,27 @@ function buildShareConfig(input) {
 }
 
 function parseTokenState(raw) {
-  if (!raw) return { token: "", refreshToken: "" };
-  const parsed = JSON.parse(raw);
-  return {
-    token: parsed.token || "",
-    refreshToken: parsed.refreshToken || "",
-  };
+  if (!raw) {
+    return {
+      tokenState: { token: "", refreshToken: "" },
+      error: "",
+    };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      tokenState: {
+        token: parsed.token || "",
+        refreshToken: parsed.refreshToken || "",
+      },
+      error: "",
+    };
+  } catch (error) {
+    return {
+      tokenState: { token: "", refreshToken: "" },
+      error: "invalid",
+    };
+  }
 }
 
 function serializeTokenState(tokenState) {
@@ -206,6 +221,21 @@ function parseJson(data) {
   }
 }
 
+function getHttpStatus(response) {
+  return response && (response.status || response.statusCode) || 0;
+}
+
+function getApiMessage(payload) {
+  return payload && (payload.message || payload.msg || payload.errorMsg) || "";
+}
+
+function assertSuccessfulHttp(response, label) {
+  const status = getHttpStatus(response);
+  if (status && (status < 200 || status >= 300)) {
+    throw new Error(label + " request failed with HTTP " + status + ".");
+  }
+}
+
 function getShareCode(payload) {
   if (!payload || typeof payload !== "object") {
     throw new Error("Share code response is not valid JSON.");
@@ -217,9 +247,12 @@ function getShareCode(payload) {
 }
 
 function refreshTokenStateFromPayload(payload, currentState) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Refresh token response is not valid JSON.");
+  }
   const centerTokenDto = payload && payload.data && payload.data.centerTokenDto;
   if (!centerTokenDto || !centerTokenDto.token) {
-    return currentState;
+    throw new Error(getApiMessage(payload) || "Refresh token response does not include token.");
   }
   return {
     token: centerTokenDto.token,
@@ -228,10 +261,18 @@ function refreshTokenStateFromPayload(payload, currentState) {
 }
 
 async function runCron() {
+  let authWarning = "";
   try {
-    let tokenState = parseTokenState($persistentStore.read(TOKEN_STATE_KEY));
+    const parsedTokenState = parseTokenState($persistentStore.read(TOKEN_STATE_KEY));
+    if (parsedTokenState.error) {
+      $notification.post("Lynk & Co Share", "", "Stored token state is invalid. Open Lynk & Co once, then run again.");
+      $done();
+      return;
+    }
+
+    let tokenState = parsedTokenState.tokenState;
     if (!tokenState.token) {
-      $notification.post("Lynk & Co Share", "", "No token captured yet.");
+      $notification.post("Lynk & Co Share", "", "No token captured. Open Lynk & Co once, then run again.");
       $done();
       return;
     }
@@ -239,14 +280,21 @@ async function runCron() {
     const config = buildShareConfig(parseArgumentString(typeof $argument === "undefined" ? "" : $argument));
 
     if (tokenState.refreshToken) {
-      const refreshRequest = buildRefreshTokenRequest({ config: config, tokenState: tokenState });
-      const refreshResult = await requestAsync($httpClient, "get", refreshRequest);
-      const refreshPayload = parseJson(refreshResult.data);
-      const refreshedTokenState = refreshTokenStateFromPayload(refreshPayload, tokenState);
-      if (refreshedTokenState.token !== tokenState.token || refreshedTokenState.refreshToken !== tokenState.refreshToken) {
-        $persistentStore.write(serializeTokenState(refreshedTokenState), TOKEN_STATE_KEY);
-        tokenState = refreshedTokenState;
+      try {
+        const refreshRequest = buildRefreshTokenRequest({ config: config, tokenState: tokenState });
+        const refreshResult = await requestAsync($httpClient, "get", refreshRequest);
+        assertSuccessfulHttp(refreshResult.response, "Refresh token");
+        const refreshPayload = parseJson(refreshResult.data);
+        const refreshedTokenState = refreshTokenStateFromPayload(refreshPayload, tokenState);
+        if (refreshedTokenState.token !== tokenState.token || refreshedTokenState.refreshToken !== tokenState.refreshToken) {
+          $persistentStore.write(serializeTokenState(refreshedTokenState), TOKEN_STATE_KEY);
+          tokenState = refreshedTokenState;
+        }
+      } catch (error) {
+        authWarning = "Refresh failed; open Lynk & Co soon to recapture auth.";
       }
+    } else {
+      authWarning = "Refresh token not captured; open Lynk & Co soon to improve reliability.";
     }
 
     const now = new Date();
@@ -269,6 +317,7 @@ async function runCron() {
       openTimeStamp: openTimeStamp,
     });
     const shareCodeResult = await requestAsync($httpClient, "get", shareCodeRequest);
+    assertSuccessfulHttp(shareCodeResult.response, "Share code");
     const shareCodePayload = parseJson(shareCodeResult.data);
     const shareCode = getShareCode(shareCodePayload);
 
@@ -277,13 +326,18 @@ async function runCron() {
       shareCode: shareCode,
     });
     const shareReportingResult = await requestAsync($httpClient, "post", shareReportingRequest);
+    assertSuccessfulHttp(shareReportingResult.response, "Share reporting");
     const shareReportingPayload = parseJson(shareReportingResult.data);
     const resultText = (shareReportingPayload && (shareReportingPayload.data || shareReportingPayload.message)) || "unknown";
 
-    $notification.post("Lynk & Co Share", "", "Share task result: " + resultText);
+    const notificationMessage = "Share task result: " + resultText + (authWarning ? ". " + authWarning : "");
+    $notification.post("Lynk & Co Share", "", notificationMessage);
     $done();
   } catch (error) {
-    $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message);
+    const authHint = authWarning && authWarning.indexOf("Refresh failed") === 0
+      ? " Auth may be stale; open Lynk & Co once, then run again."
+      : "";
+    $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message + authHint);
     $done();
   }
 }
