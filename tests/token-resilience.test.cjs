@@ -12,6 +12,7 @@ function runCaptureBundle(input) {
   const context = {
     URL,
     $request: input.request,
+    $response: input.response,
     $persistentStore: {
       read(key) {
         assert.strictEqual(key, "lynkco.share.tokenState");
@@ -159,6 +160,33 @@ test("capture keeps an existing refreshToken when a request only has token", fun
   assert.deepStrictEqual(JSON.parse(writes[0].value), {
     token: "new-token",
     refreshToken: "old-refresh",
+  });
+});
+
+test("capture stores refreshToken from nested response body", function() {
+  const writes = [];
+  runCaptureBundle({
+    storedValue: JSON.stringify({ token: "old-token", refreshToken: "" }),
+    request: {
+      url: "https://h5-api.lynkco.com/auth/login",
+      headers: {},
+    },
+    response: {
+      body: JSON.stringify({
+        data: {
+          centerTokenDto: {
+            token: "response-token",
+            refreshToken: "response-refresh",
+          },
+        },
+      }),
+    },
+    writes,
+  });
+
+  assert.deepStrictEqual(JSON.parse(writes[0].value), {
+    token: "response-token",
+    refreshToken: "response-refresh",
   });
 });
 
