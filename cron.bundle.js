@@ -407,7 +407,7 @@ function refreshTokenStateFromPayload(payload, currentState) {
 }
 
 async function runCron() {
-  let authWarning = "";
+  let authHint = "";
   try {
     const parsedTokenState = parseTokenState($persistentStore.read(TOKEN_STATE_KEY));
     if (parsedTokenState.error) {
@@ -437,10 +437,10 @@ async function runCron() {
           tokenState = refreshedTokenState;
         }
       } catch (error) {
-        authWarning = "Refresh failed; open Lynk & Co soon to recapture auth.";
+        authHint = " Auth may be stale; open Lynk & Co once, then run again.";
       }
     } else {
-      authWarning = "Refresh token not captured; open Lynk & Co soon to improve reliability.";
+      authHint = " Open Lynk & Co once, then run again.";
     }
 
     const now = new Date();
@@ -476,13 +476,9 @@ async function runCron() {
     const shareReportingPayload = parseJson(shareReportingResult.data);
     const resultText = (shareReportingPayload && (shareReportingPayload.data || shareReportingPayload.message)) || "unknown";
 
-    const notificationMessage = "Share task result: " + resultText + (authWarning ? ". " + authWarning : "");
-    $notification.post("Lynk & Co Share", "", notificationMessage);
+    $notification.post("Lynk & Co Share", "", "Share task result: " + resultText);
     $done();
   } catch (error) {
-    const authHint = authWarning && authWarning.indexOf("Refresh failed") === 0
-      ? " Auth may be stale; open Lynk & Co once, then run again."
-      : "";
     $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message + authHint);
     $done();
   }

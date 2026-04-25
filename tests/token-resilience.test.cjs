@@ -266,10 +266,7 @@ test("cron continues with the existing token when refresh fails and share succee
     ],
   });
 
-  assert.strictEqual(
-    result.notifications[0].message,
-    "Share task result: ok. Refresh failed; open Lynk & Co soon to recapture auth.",
-  );
+  assert.strictEqual(result.notifications[0].message, "Share task result: ok");
 });
 
 test("cron asks user to capture when token state is empty", async function() {
@@ -280,7 +277,7 @@ test("cron asks user to capture when token state is empty", async function() {
   );
 });
 
-test("cron warns when refreshToken is missing but still tries current token", async function() {
+test("cron omits auth warnings when refreshToken is missing but share succeeds", async function() {
   const result = await runCronBundle({
     storedValue: JSON.stringify({ token: "token-only", refreshToken: "" }),
     getResponses: [
@@ -291,10 +288,7 @@ test("cron warns when refreshToken is missing but still tries current token", as
     ],
   });
 
-  assert.strictEqual(
-    result.notifications[0].message,
-    "Share task result: ok. Refresh token not captured; open Lynk & Co soon to improve reliability.",
-  );
+  assert.strictEqual(result.notifications[0].message, "Share task result: ok");
 });
 
 test("cron asks user to recapture when stored token state is invalid", async function() {
@@ -317,10 +311,7 @@ test("cron can sign share requests without WebCrypto globals", async function() 
     ],
   });
 
-  assert.strictEqual(
-    result.notifications[0].message,
-    "Share task result: ok. Refresh token not captured; open Lynk & Co soon to improve reliability.",
-  );
+  assert.strictEqual(result.notifications[0].message, "Share task result: ok");
 });
 
 test("cron HMAC-SHA256 signature matches Node crypto", async function() {
