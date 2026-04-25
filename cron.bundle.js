@@ -333,6 +333,15 @@ function buildShareReportingRequest(input) {
   };
 }
 
+function postShareSuccess(notification, resultText, config) {
+  notification.post(
+    "Lynk & Co Share",
+    "",
+    "Share task result: " + resultText + ". Tap notification to open.",
+    { openUrl: config.shareContentURL },
+  );
+}
+
 function buildSignedShareCodeContext(input) {
   const uri = "/app/v1/task/getShareCode";
   return {
@@ -476,7 +485,7 @@ async function runCron() {
     const shareReportingPayload = parseJson(shareReportingResult.data);
     const resultText = (shareReportingPayload && (shareReportingPayload.data || shareReportingPayload.message)) || "unknown";
 
-    $notification.post("Lynk & Co Share", "", "Share task result: " + resultText);
+    postShareSuccess($notification, resultText, config);
     $done();
   } catch (error) {
     $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message + authHint);

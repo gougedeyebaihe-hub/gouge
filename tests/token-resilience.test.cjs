@@ -13,8 +13,8 @@ function runCaptureBundle(input) {
   const context = {
     URL,
     $notification: {
-      post(title, subtitle, message) {
-        notifications.push({ title, subtitle, message });
+      post(title, subtitle, message, attach) {
+        notifications.push({ title, subtitle, message, attach });
       },
     },
     $done() {},
@@ -98,8 +98,8 @@ function runCronBundle(input) {
       },
       $httpClient: createHttpClient(input),
       $notification: {
-        post(title, subtitle, message) {
-          notifications.push({ title, subtitle, message });
+        post(title, subtitle, message, attach) {
+          notifications.push({ title, subtitle, message, attach });
         },
       },
       $done() {
@@ -266,7 +266,11 @@ test("cron continues with the existing token when refresh fails and share succee
     ],
   });
 
-  assert.strictEqual(result.notifications[0].message, "Share task result: ok");
+  assert.strictEqual(result.notifications[0].message, "Share task result: ok. Tap notification to open.");
+  assert.strictEqual(
+    result.notifications[0].attach.openUrl,
+    "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id=1881101031748870144",
+  );
 });
 
 test("cron asks user to capture when token state is empty", async function() {
@@ -288,7 +292,11 @@ test("cron omits auth warnings when refreshToken is missing but share succeeds",
     ],
   });
 
-  assert.strictEqual(result.notifications[0].message, "Share task result: ok");
+  assert.strictEqual(result.notifications[0].message, "Share task result: ok. Tap notification to open.");
+  assert.strictEqual(
+    result.notifications[0].attach.openUrl,
+    "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id=1881101031748870144",
+  );
 });
 
 test("cron asks user to recapture when stored token state is invalid", async function() {
@@ -311,7 +319,11 @@ test("cron can sign share requests without WebCrypto globals", async function() 
     ],
   });
 
-  assert.strictEqual(result.notifications[0].message, "Share task result: ok");
+  assert.strictEqual(result.notifications[0].message, "Share task result: ok. Tap notification to open.");
+  assert.strictEqual(
+    result.notifications[0].attach.openUrl,
+    "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id=1881101031748870144",
+  );
 });
 
 test("cron HMAC-SHA256 signature matches Node crypto", async function() {
