@@ -1,0 +1,4 @@
+Hello from Codex.
+
+This file was created to verify repository write access.
+Date: 2026-04-25
