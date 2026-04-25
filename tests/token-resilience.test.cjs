@@ -48,8 +48,11 @@ function runCaptureBundle(input) {
 function createHttpClient(input) {
   const getResponses = (input.getResponses || []).slice();
   const postResponses = (input.postResponses || []).slice();
+  const getRequests = input.getRequests || [];
+  const postRequests = input.postRequests || [];
   return {
     get(params, callback) {
+      getRequests.push(params);
       const result = getResponses.shift();
       if (!result) {
         callback("Unexpected GET request: " + params.url);
@@ -58,6 +61,7 @@ function createHttpClient(input) {
       callback(result.error || null, result.response || {}, result.data || "");
     },
     post(params, callback) {
+      postRequests.push(params);
       const result = postResponses.shift();
       if (!result) {
         callback("Unexpected POST request: " + params.url);
@@ -260,13 +264,14 @@ test("cron continues with the existing token when refresh fails and share succee
     getResponses: [
       { response: { status: 401 }, data: JSON.stringify({ message: "refresh expired" }) },
       { response: { status: 200 }, data: JSON.stringify({ data: "share-code" }) },
+      { response: { status: 200 }, data: "<html></html>" },
     ],
     postResponses: [
       { response: { status: 200 }, data: JSON.stringify({ data: "ok" }) },
     ],
   });
 
-  assert.strictEqual(result.notifications[0].message, "Share task result: ok. Tap notification to open.");
+  assert.strictEqual(result.notifications[0].message, "Share task result: ok. Article opened automatically.");
   assert.strictEqual(
     result.notifications[0].attach.openUrl,
     "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id=1881101031748870144",
@@ -282,19 +287,26 @@ test("cron asks user to capture when token state is empty", async function() {
 });
 
 test("cron omits auth warnings when refreshToken is missing but share succeeds", async function() {
+  const getRequests = [];
   const result = await runCronBundle({
+    getRequests,
     storedValue: JSON.stringify({ token: "token-only", refreshToken: "" }),
     getResponses: [
       { response: { status: 200 }, data: JSON.stringify({ data: "share-code" }) },
+      { response: { status: 200 }, data: "<html></html>" },
     ],
     postResponses: [
       { response: { status: 200 }, data: JSON.stringify({ data: "ok" }) },
     ],
   });
 
-  assert.strictEqual(result.notifications[0].message, "Share task result: ok. Tap notification to open.");
+  assert.strictEqual(result.notifications[0].message, "Share task result: ok. Article opened automatically.");
   assert.strictEqual(
     result.notifications[0].attach.openUrl,
+    "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id=1881101031748870144",
+  );
+  assert.strictEqual(
+    getRequests[1].url,
     "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id=1881101031748870144",
   );
 });
@@ -313,13 +325,14 @@ test("cron can sign share requests without WebCrypto globals", async function() 
     storedValue: JSON.stringify({ token: "token-only", refreshToken: "" }),
     getResponses: [
       { response: { status: 200 }, data: JSON.stringify({ data: "share-code" }) },
+      { response: { status: 200 }, data: "<html></html>" },
     ],
     postResponses: [
       { response: { status: 200 }, data: JSON.stringify({ data: "ok" }) },
     ],
   });
 
-  assert.strictEqual(result.notifications[0].message, "Share task result: ok. Tap notification to open.");
+  assert.strictEqual(result.notifications[0].message, "Share task result: ok. Article opened automatically.");
   assert.strictEqual(
     result.notifications[0].attach.openUrl,
     "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id=1881101031748870144",
