@@ -8,12 +8,20 @@ const rootDir = path.resolve(__dirname, "..");
 
 function runCaptureBundle(input) {
   const writes = input.writes || [];
+  const notifications = [];
   const script = fs.readFileSync(path.join(rootDir, "capture.bundle.js"), "utf8");
   const context = {
     URL,
-    $request: input.request,
-    $response: input.response,
-    $persistentStore: {
+    $notification: {
+      post(title, subtitle, message) {
+        notifications.push({ title, subtitle, message });
+      },
+    },
+    $done() {},
+  };
+
+  if (!input.withoutStore) {
+    context.$persistentStore = {
       read(key) {
         assert.strictEqual(key, "lynkco.share.tokenState");
         return input.storedValue || "";
@@ -23,12 +31,18 @@ function runCaptureBundle(input) {
         writes.push({ value, key });
         return true;
       },
-    },
-    $done() {},
-  };
+    };
+  }
+
+  if ("request" in input) {
+    context.$request = input.request;
+  }
+  if ("response" in input) {
+    context.$response = input.response;
+  }
 
   vm.runInNewContext(script, context, { filename: "capture.bundle.js" });
-  return { writes };
+  return { writes, notifications };
 }
 
 function createHttpClient(input) {
@@ -188,6 +202,56 @@ test("capture stores refreshToken from nested response body", function() {
     token: "response-token",
     refreshToken: "response-refresh",
   });
+});
+
+test("capture does not throw when run manually without request or response", function() {
+  const result = runCaptureBundle({
+    storedValue: "",
+    writes: [],
+  });
+
+  assert.deepStrictEqual(result.writes, []);
+  assert.strictEqual(
+    result.notifications[0].message,
+    "Capture waits for Lynk & Co traffic. Open the app once, then run share.",
+  );
+});
+
+test("capture stores refreshToken from nested request body", function() {
+  const writes = [];
+  runCaptureBundle({
+    storedValue: JSON.stringify({ token: "old-token", refreshToken: "" }),
+    request: {
+      url: "https://h5-api.lynkco.com/auth/login",
+      headers: {},
+      body: JSON.stringify({
+        data: {
+          centerTokenDto: {
+            refreshToken: "request-refresh",
+          },
+        },
+      }),
+    },
+    writes,
+  });
+
+  assert.deepStrictEqual(JSON.parse(writes[0].value), {
+    token: "old-token",
+    refreshToken: "request-refresh",
+  });
+});
+
+test("capture does not throw when persistent store is missing", function() {
+  const result = runCaptureBundle({
+    withoutStore: true,
+    request: {
+      url: "https://h5-api.lynkco.com/auth/login?refreshToken=from-url",
+      headers: { token: "token" },
+    },
+  });
+
+  assert.deepStrictEqual(result.writes, []);
+  assert.strictEqual(result.notifications[0].message, "Capture store is unavailable.");
 });
 
 test("cron continues with the existing token when refresh fails and share succeeds", async function() {

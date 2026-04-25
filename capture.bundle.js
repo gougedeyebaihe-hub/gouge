@@ -21,6 +21,9 @@ function parseTokenState(raw) {
 }
 
 function extractTokenState(request) {
+  if (!request || !request.url) {
+    return { token: "", refreshToken: "" };
+  }
   const headers = request.headers || {};
   const token = headers.token || headers.Token || "";
   const url = new URL(request.url);
@@ -89,13 +92,55 @@ function writeTokenState(store, tokenState) {
   return store.write(serializeTokenState(tokenState), TOKEN_STATE_KEY);
 }
 
+function getGlobalRequest() {
+  return typeof $request === "undefined" ? null : $request;
+}
+
+function getGlobalResponse() {
+  return typeof $response === "undefined" ? null : $response;
+}
+
+function getGlobalStore() {
+  return typeof $persistentStore === "undefined" ? null : $persistentStore;
+}
+
+function getGlobalNotification() {
+  return typeof $notification === "undefined" ? null : $notification;
+}
+
+function getGlobalDone() {
+  return typeof $done === "undefined" ? function() {} : $done;
+}
+
 function runCapture(options = {}) {
-  const request = options.request || $request;
-  const response = options.response || (typeof $response === "undefined" ? null : $response);
-  const store = options.store || $persistentStore;
-  const done = options.done || $done;
+  const request = options.request || getGlobalRequest();
+  const response = options.response || getGlobalResponse();
+  const notification = options.notification || getGlobalNotification();
+  const done = options.done || getGlobalDone();
+
+  if (!request && !response) {
+    if (notification) {
+      notification.post(
+        "Lynk & Co Share",
+        "",
+        "Capture waits for Lynk & Co traffic. Open the app once, then run share.",
+      );
+    }
+    done({});
+    return;
+  }
+
+  const store = options.store || getGlobalStore();
+  if (!store) {
+    if (notification) {
+      notification.post("Lynk & Co Share", "", "Capture store is unavailable.");
+    }
+    done({});
+    return;
+  }
+
   const tokenState = mergeExtractedTokenState(
-    mergeExtractedTokenState(extractTokenState(request), extractBodyTokenState(request.body)),
+    mergeExtractedTokenState(extractTokenState(request), extractBodyTokenState(request && request.body)),
     extractBodyTokenState(response && response.body),
   );
 

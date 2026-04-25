@@ -8,7 +8,7 @@ articleId=1881101031748870144
 cronexp=0 8 * * *
 
 [Script]
-http-request ^https?:\/\/h5-api\.lynkco\.com\/.* script-path=./capture.bundle.js,tag=lynkco-capture,timeout=20,enable=true
+http-request ^https?:\/\/h5-api\.lynkco\.com\/.* script-path=./capture.bundle.js,requires-body=true,tag=lynkco-capture,timeout=20,enable=true
 http-response ^https?:\/\/h5-api\.lynkco\.com\/.* script-path=./capture.bundle.js,requires-body=true,tag=lynkco-capture-response,timeout=20,enable=true
 cron "0 8 * * *" script-path=./cron.bundle.js,tag=lynkco-share,timeout=60,enable=true
 
