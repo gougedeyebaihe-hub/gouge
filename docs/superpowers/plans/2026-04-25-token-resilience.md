@@ -14,11 +14,11 @@
 
 **Files:**
 - Modify: `capture.bundle.js`
-- Test: `tests/token-resilience.test.js`
+- Test: `tests/token-resilience.test.cjs`
 
 - [ ] **Step 1: Add a failing capture test**
 
-Create `tests/token-resilience.test.js` with a VM harness that runs `capture.bundle.js` with mocked Loon globals. Include this test case:
+Create `tests/token-resilience.test.cjs` with a VM harness that runs `capture.bundle.js` with mocked Loon globals. Include this test case:
 
 ```javascript
 test("capture keeps an existing refreshToken when a request only has token", function() {
@@ -41,7 +41,7 @@ test("capture keeps an existing refreshToken when a request only has token", fun
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
-Run: `node tests/token-resilience.test.js`
+Run: `node tests/token-resilience.test.cjs`
 
 Expected: FAIL because the current capture script writes an empty `refreshToken`.
 
@@ -75,7 +75,7 @@ Update `runCapture` so it reads the old state, merges only when at least one new
 
 - [ ] **Step 4: Run the capture test again**
 
-Run: `node tests/token-resilience.test.js`
+Run: `node tests/token-resilience.test.cjs`
 
 Expected: PASS for the capture merge case.
 
@@ -83,11 +83,11 @@ Expected: PASS for the capture merge case.
 
 **Files:**
 - Modify: `cron.bundle.js`
-- Test: `tests/token-resilience.test.js`
+- Test: `tests/token-resilience.test.cjs`
 
 - [ ] **Step 1: Add failing cron tests**
 
-Extend `tests/token-resilience.test.js` with mocked `$persistentStore`, `$httpClient`, `$notification`, and `$done` cases:
+Extend `tests/token-resilience.test.cjs` with mocked `$persistentStore`, `$httpClient`, `$notification`, and `$done` cases:
 
 ```javascript
 test("cron continues with the existing token when refresh fails and share succeeds", async function() {
@@ -108,7 +108,7 @@ test("cron continues with the existing token when refresh fails and share succee
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
-Run: `node tests/token-resilience.test.js`
+Run: `node tests/token-resilience.test.cjs`
 
 Expected: FAIL because refresh errors currently flow to the outer catch.
 
@@ -137,7 +137,7 @@ Use these helpers for refresh and share-code responses. Wrap refresh in its own 
 
 - [ ] **Step 4: Run the cron fallback test again**
 
-Run: `node tests/token-resilience.test.js`
+Run: `node tests/token-resilience.test.cjs`
 
 Expected: PASS for refresh fallback.
 
@@ -145,7 +145,7 @@ Expected: PASS for refresh fallback.
 
 **Files:**
 - Modify: `cron.bundle.js`
-- Test: `tests/token-resilience.test.js`
+- Test: `tests/token-resilience.test.cjs`
 
 - [ ] **Step 1: Add missing-state tests**
 
@@ -182,7 +182,7 @@ Run:
 ```bash
 node --check capture.bundle.js
 node --check cron.bundle.js
-node tests/token-resilience.test.js
+node tests/token-resilience.test.cjs
 git diff --check
 ```
 
@@ -193,6 +193,6 @@ Expected: all commands pass.
 Run:
 
 ```bash
-git add capture.bundle.js cron.bundle.js tests/token-resilience.test.js docs/superpowers/plans/2026-04-25-token-resilience.md
+git add capture.bundle.js cron.bundle.js tests/token-resilience.test.cjs docs/superpowers/plans/2026-04-25-token-resilience.md
 git commit -m "Improve token refresh resilience"
 ```
