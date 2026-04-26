@@ -389,10 +389,11 @@ function refreshTokenStateFromPayload(payload, currentState) {
 }
 
 async function runCron() {
+  let authHint = "";
   try {
     let tokenState = parseTokenState($persistentStore.read(TOKEN_STATE_KEY));
     if (!tokenState.token) {
-      $notification.post("Lynk & Co Share", "", "No token captured yet.");
+      $notification.post("Lynk & Co Share", "", "No token captured. Open Lynk & Co once, then run again.");
       $done();
       return;
     }
@@ -400,13 +401,21 @@ async function runCron() {
     const config = buildShareConfig(parseArgumentString(typeof $argument === "undefined" ? "" : $argument));
 
     if (tokenState.refreshToken) {
-      const refreshRequest = buildRefreshTokenRequest({ config: config, tokenState: tokenState });
-      const refreshResult = await requestAsync($httpClient, "get", refreshRequest);
-      const refreshPayload = parseJson(refreshResult.data);
-      const refreshedTokenState = refreshTokenStateFromPayload(refreshPayload, tokenState);
-      if (refreshedTokenState.token !== tokenState.token || refreshedTokenState.refreshToken !== tokenState.refreshToken) {
-        $persistentStore.write(serializeTokenState(refreshedTokenState), TOKEN_STATE_KEY);
-        tokenState = refreshedTokenState;
+      try {
+        const refreshRequest = buildRefreshTokenRequest({ config: config, tokenState: tokenState });
+        const refreshResult = await requestAsync($httpClient, "get", refreshRequest);
+        const refreshStatus = (refreshResult.response && (refreshResult.response.status || refreshResult.response.statusCode)) || 0;
+        if (refreshStatus && (refreshStatus < 200 || refreshStatus >= 300)) {
+          throw new Error("Refresh token request failed with HTTP " + refreshStatus + ".");
+        }
+        const refreshPayload = parseJson(refreshResult.data);
+        const refreshedTokenState = refreshTokenStateFromPayload(refreshPayload, tokenState);
+        if (refreshedTokenState.token !== tokenState.token || refreshedTokenState.refreshToken !== tokenState.refreshToken) {
+          $persistentStore.write(serializeTokenState(refreshedTokenState), TOKEN_STATE_KEY);
+          tokenState = refreshedTokenState;
+        }
+      } catch (error) {
+        authHint = " Auth refresh also failed; open Lynk & Co once, then run again.";
       }
     }
 
@@ -430,6 +439,10 @@ async function runCron() {
       openTimeStamp: openTimeStamp,
     });
     const shareCodeResult = await requestAsync($httpClient, "get", shareCodeRequest);
+    const shareCodeStatus = (shareCodeResult.response && (shareCodeResult.response.status || shareCodeResult.response.statusCode)) || 0;
+    if (shareCodeStatus && (shareCodeStatus < 200 || shareCodeStatus >= 300)) {
+      throw new Error("Share code request failed with HTTP " + shareCodeStatus + ".");
+    }
     const shareCodePayload = parseJson(shareCodeResult.data);
     const shareCode = getShareCode(shareCodePayload);
 
@@ -438,13 +451,17 @@ async function runCron() {
       shareCode: shareCode,
     });
     const shareReportingResult = await requestAsync($httpClient, "post", shareReportingRequest);
+    const shareReportingStatus = (shareReportingResult.response && (shareReportingResult.response.status || shareReportingResult.response.statusCode)) || 0;
+    if (shareReportingStatus && (shareReportingStatus < 200 || shareReportingStatus >= 300)) {
+      throw new Error("Share reporting request failed with HTTP " + shareReportingStatus + ".");
+    }
     const shareReportingPayload = parseJson(shareReportingResult.data);
     const resultText = (shareReportingPayload && (shareReportingPayload.data || shareReportingPayload.message)) || "unknown";
 
-    $notification.post("Lynk & Co Share", "", "Share task result: " + resultText);
+    $notification.post("Lynk & Co Share", "", "Share task succeeded: " + resultText);
     $done();
   } catch (error) {
-    $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message);
+    $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message + authHint);
     $done();
   }
 }
