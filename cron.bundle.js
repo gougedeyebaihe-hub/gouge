@@ -290,6 +290,20 @@ function buildRefreshTokenRequest(input) {
   };
 }
 
+function buildDailySignRequest(input) {
+  return {
+    method: "POST",
+    url: "https://h5-api.lynkco.com/up/api/v1/user/sign",
+    headers: {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
+      "Content-Type": "application/json",
+      "X-Ca-Key": input.config.xCaKey,
+      token: input.tokenState.token,
+    },
+    body: "{}",
+  };
+}
+
 function buildGetShareCodeRequest(input) {
   const riskRequestInfo = JSON.stringify({
     openTimeStamp: input.openTimeStamp,
@@ -388,6 +402,85 @@ function refreshTokenStateFromPayload(payload, currentState) {
   };
 }
 
+function appendAuthHint(message, authHint) {
+  return authHint ? message + authHint : message;
+}
+
+function summarizeTask(name, result) {
+  if (result.ok) {
+    return name + ": ok";
+  }
+  return name + ": failed (" + result.message + ")";
+}
+
+async function runDailySignTask(input) {
+  try {
+    const signRequest = buildDailySignRequest({
+      config: input.config,
+      tokenState: input.tokenState,
+    });
+    const signResult = await requestAsync(input.httpClient, "post", signRequest);
+    const signStatus = (signResult.response && (signResult.response.status || signResult.response.statusCode)) || 0;
+    if (signStatus && (signStatus < 200 || signStatus >= 300)) {
+      throw new Error("Sign request failed with HTTP " + signStatus + ".");
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      message: appendAuthHint(error.message, input.authHint),
+    };
+  }
+}
+
+async function runShareTask(input) {
+  try {
+    const now = input.now();
+    const nonce = createNonceFromBytes(Array.from(input.randomBytes()));
+    const timestamp = String(now.getTime());
+    const openTimeStamp = formatRiskOpenTime(now);
+    const signedContext = buildSignedShareCodeContext({
+      config: input.config,
+      nonce: nonce,
+      timestamp: timestamp,
+    });
+    const signature = await signBase64HmacSha256(input.config.appSecret, signedContext.signString);
+
+    const shareCodeRequest = buildGetShareCodeRequest({
+      config: input.config,
+      tokenState: input.tokenState,
+      nonce: nonce,
+      timestamp: timestamp,
+      signature: signature,
+      openTimeStamp: openTimeStamp,
+    });
+    const shareCodeResult = await requestAsync(input.httpClient, "get", shareCodeRequest);
+    const shareCodeStatus = (shareCodeResult.response && (shareCodeResult.response.status || shareCodeResult.response.statusCode)) || 0;
+    if (shareCodeStatus && (shareCodeStatus < 200 || shareCodeStatus >= 300)) {
+      throw new Error("Share code request failed with HTTP " + shareCodeStatus + ".");
+    }
+    const shareCodePayload = parseJson(shareCodeResult.data);
+    const shareCode = getShareCode(shareCodePayload);
+
+    const shareReportingRequest = buildShareReportingRequest({
+      config: input.config,
+      shareCode: shareCode,
+    });
+    const shareReportingResult = await requestAsync(input.httpClient, "post", shareReportingRequest);
+    const shareReportingStatus = (shareReportingResult.response && (shareReportingResult.response.status || shareReportingResult.response.statusCode)) || 0;
+    if (shareReportingStatus && (shareReportingStatus < 200 || shareReportingStatus >= 300)) {
+      throw new Error("Share reporting request failed with HTTP " + shareReportingStatus + ".");
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      message: appendAuthHint(error.message, input.authHint),
+    };
+  }
+}
+
 async function runCron() {
   let authHint = "";
   try {
@@ -419,46 +512,23 @@ async function runCron() {
       }
     }
 
-    const now = new Date();
-    const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
-    const timestamp = String(now.getTime());
-    const openTimeStamp = formatRiskOpenTime(now);
-    const signedContext = buildSignedShareCodeContext({
-      config: config,
-      nonce: nonce,
-      timestamp: timestamp,
-    });
-    const signature = await signBase64HmacSha256(config.appSecret, signedContext.signString);
-
-    const shareCodeRequest = buildGetShareCodeRequest({
+    const signResult = await runDailySignTask({
       config: config,
       tokenState: tokenState,
-      nonce: nonce,
-      timestamp: timestamp,
-      signature: signature,
-      openTimeStamp: openTimeStamp,
+      httpClient: $httpClient,
+      authHint: authHint,
     });
-    const shareCodeResult = await requestAsync($httpClient, "get", shareCodeRequest);
-    const shareCodeStatus = (shareCodeResult.response && (shareCodeResult.response.status || shareCodeResult.response.statusCode)) || 0;
-    if (shareCodeStatus && (shareCodeStatus < 200 || shareCodeStatus >= 300)) {
-      throw new Error("Share code request failed with HTTP " + shareCodeStatus + ".");
-    }
-    const shareCodePayload = parseJson(shareCodeResult.data);
-    const shareCode = getShareCode(shareCodePayload);
 
-    const shareReportingRequest = buildShareReportingRequest({
+    const shareResult = await runShareTask({
       config: config,
-      shareCode: shareCode,
+      tokenState: tokenState,
+      httpClient: $httpClient,
+      now: function() { return new Date(); },
+      randomBytes: function() { return getRandomBytes(16); },
+      authHint: authHint,
     });
-    const shareReportingResult = await requestAsync($httpClient, "post", shareReportingRequest);
-    const shareReportingStatus = (shareReportingResult.response && (shareReportingResult.response.status || shareReportingResult.response.statusCode)) || 0;
-    if (shareReportingStatus && (shareReportingStatus < 200 || shareReportingStatus >= 300)) {
-      throw new Error("Share reporting request failed with HTTP " + shareReportingStatus + ".");
-    }
-    const shareReportingPayload = parseJson(shareReportingResult.data);
-    const resultText = (shareReportingPayload && (shareReportingPayload.data || shareReportingPayload.message)) || "unknown";
 
-    $notification.post("Lynk & Co Share", "", "Share task succeeded: " + resultText);
+    $notification.post("Lynk & Co Share", "", summarizeTask("Sign", signResult) + " | " + summarizeTask("Share", shareResult));
     $done();
   } catch (error) {
     $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message + authHint);
