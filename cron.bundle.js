@@ -388,15 +388,32 @@ function getApiMessage(payload) {
   return payload.message || payload.msg || payload.errorMsg || "";
 }
 
-function getHttpStatus(response) {
-  return (response && (response.status || response.statusCode)) || 0;
+function summarizeBody(data) {
+  if (typeof data !== "string") {
+    return "";
+  }
+
+  const trimmed = data.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed.length > 160 ? `${trimmed.slice(0, 157)}...` : trimmed;
 }
 
-function assertSuccessfulHttp(response, label, payload) {
+function getHttpStatus(response) {
+  return response?.status || response?.statusCode || 0;
+}
+
+function assertSuccessfulHttp(response, label, payload = null, data = "") {
   const status = getHttpStatus(response);
+
   if (status && (status < 200 || status >= 300)) {
     const apiMessage = getApiMessage(payload);
-    throw new Error(label + " request failed with HTTP " + status + (apiMessage ? ": " + apiMessage : "."));
+    const bodySummary = summarizeBody(data);
+    throw new Error(
+      `${label} request failed with HTTP ${status}${apiMessage ? `: ${apiMessage}` : bodySummary ? `: ${bodySummary}` : "."}`,
+    );
   }
 }
 
@@ -404,17 +421,21 @@ function getShareCode(payload) {
   if (!payload || typeof payload !== "object") {
     throw new Error("Share code response is not valid JSON.");
   }
+
   if (!payload.data) {
     throw new Error(payload.message || "Share code response does not include data.");
   }
+
   return payload.data;
 }
 
 function refreshTokenStateFromPayload(payload, currentState) {
-  const centerTokenDto = payload && payload.data && payload.data.centerTokenDto;
-  if (!centerTokenDto || !centerTokenDto.token) {
+  const centerTokenDto = payload?.data?.centerTokenDto;
+
+  if (!centerTokenDto?.token) {
     return currentState;
   }
+
   return {
     token: centerTokenDto.token,
     refreshToken: centerTokenDto.refreshToken || currentState.refreshToken,
@@ -422,73 +443,92 @@ function refreshTokenStateFromPayload(payload, currentState) {
 }
 
 function appendAuthHint(message, authHint) {
-  return authHint ? message + authHint : message;
+  return authHint ? `${message}${authHint}` : message;
 }
 
 function summarizeTask(name, result) {
   if (result.ok) {
-    return name + ": ok";
+    return `${name}: ok`;
   }
-  return name + ": failed (" + result.message + ")";
+
+  return `${name}: failed (${result.message})`;
 }
 
-async function runDailySignTask(input) {
+async function runDailySignTask({ config, tokenState, httpClient, authHint }) {
   try {
-    const signRequest = buildDailySignRequest({
-      config: input.config,
-      tokenState: input.tokenState,
-    });
-    const signResult = await requestAsync(input.httpClient, "post", signRequest);
+    const signRequest = buildDailySignRequest({ config, tokenState });
+    const signResult = await requestAsync(httpClient, "post", signRequest);
     const signPayload = parseJson(signResult.data);
-    assertSuccessfulHttp(signResult.response, "Sign", signPayload);
+    assertSuccessfulHttp(signResult.response, "Sign", signPayload, signResult.data);
+
     return { ok: true };
   } catch (error) {
     return {
       ok: false,
-      message: appendAuthHint(error.message, input.authHint),
+      message: appendAuthHint(error.message, authHint),
     };
   }
 }
 
-async function runShareTask(input) {
+async function runShareTask({
+  config,
+  tokenState,
+  httpClient,
+  now,
+  randomBytes,
+  authHint,
+}) {
   try {
-    const now = input.now();
-    const nonce = createNonceFromBytes(Array.from(input.randomBytes()));
-    const timestamp = String(now.getTime());
-    const openTimeStamp = formatRiskOpenTime(now);
-    const signedContext = buildSignedShareCodeContext({
-      config: input.config,
-      nonce: nonce,
-      timestamp: timestamp,
+    const nonce = createNonceFromBytes(Array.from(randomBytes()));
+    const timestamp = String(now().getTime());
+    const openTimeStamp = formatRiskOpenTime(now());
+    const { signString } = buildSignedShareCodeContext({
+      config,
+      nonce,
+      timestamp,
     });
-    const signature = await signBase64HmacSha256(input.config.appSecret, signedContext.signString);
+    const signature = await signBase64HmacSha256(config.appSecret, signString);
 
     const shareCodeRequest = buildGetShareCodeRequest({
-      config: input.config,
-      tokenState: input.tokenState,
-      nonce: nonce,
-      timestamp: timestamp,
-      signature: signature,
-      openTimeStamp: openTimeStamp,
+      config,
+      tokenState,
+      nonce,
+      timestamp,
+      signature,
+      openTimeStamp,
     });
-    const shareCodeResult = await requestAsync(input.httpClient, "get", shareCodeRequest);
+    const shareCodeResult = await requestAsync(httpClient, "get", shareCodeRequest);
     const shareCodePayload = parseJson(shareCodeResult.data);
-    assertSuccessfulHttp(shareCodeResult.response, "Share code", shareCodePayload);
+    assertSuccessfulHttp(
+      shareCodeResult.response,
+      "Share code",
+      shareCodePayload,
+      shareCodeResult.data,
+    );
     const shareCode = getShareCode(shareCodePayload);
 
     const shareReportingRequest = buildShareReportingRequest({
-      config: input.config,
-      shareCode: shareCode,
+      config,
+      shareCode,
     });
-    const shareReportingResult = await requestAsync(input.httpClient, "post", shareReportingRequest);
+    const shareReportingResult = await requestAsync(
+      httpClient,
+      "post",
+      shareReportingRequest,
+    );
     const shareReportingPayload = parseJson(shareReportingResult.data);
-    assertSuccessfulHttp(shareReportingResult.response, "Share reporting", shareReportingPayload);
+    assertSuccessfulHttp(
+      shareReportingResult.response,
+      "Share reporting",
+      shareReportingPayload,
+      shareReportingResult.data,
+    );
 
     return { ok: true };
   } catch (error) {
     return {
       ok: false,
-      message: appendAuthHint(error.message, input.authHint),
+      message: appendAuthHint(error.message, authHint),
     };
   }
 }
@@ -510,37 +550,55 @@ async function runCron() {
         const refreshRequest = buildRefreshTokenRequest({ config: config, tokenState: tokenState });
         const refreshResult = await requestAsync($httpClient, "get", refreshRequest);
         const refreshPayload = parseJson(refreshResult.data);
-        assertSuccessfulHttp(refreshResult.response, "Refresh token", refreshPayload);
-        const refreshedTokenState = refreshTokenStateFromPayload(refreshPayload, tokenState);
-        if (refreshedTokenState.token !== tokenState.token || refreshedTokenState.refreshToken !== tokenState.refreshToken) {
+        assertSuccessfulHttp(
+          refreshResult.response,
+          "Refresh token",
+          refreshPayload,
+          refreshResult.data,
+        );
+        const refreshedTokenState = refreshTokenStateFromPayload(
+          refreshPayload,
+          tokenState,
+        );
+
+        if (refreshedTokenState.token !== tokenState.token ||
+            refreshedTokenState.refreshToken !== tokenState.refreshToken) {
           $persistentStore.write(serializeTokenState(refreshedTokenState), TOKEN_STATE_KEY);
           tokenState = refreshedTokenState;
         }
-      } catch (error) {
+      } catch {
         authHint = " Auth refresh also failed; open Lynk & Co once, then run again.";
       }
     }
 
     const signResult = await runDailySignTask({
-      config: config,
-      tokenState: tokenState,
+      config,
+      tokenState,
       httpClient: $httpClient,
-      authHint: authHint,
+      authHint,
     });
 
     const shareResult = await runShareTask({
-      config: config,
-      tokenState: tokenState,
+      config,
+      tokenState,
       httpClient: $httpClient,
-      now: function() { return new Date(); },
-      randomBytes: function() { return getRandomBytes(16); },
-      authHint: authHint,
+      now: () => new Date(),
+      randomBytes: () => getRandomBytes(16),
+      authHint,
     });
 
-    $notification.post("Lynk & Co Share", "", summarizeTask("Sign", signResult) + " | " + summarizeTask("Share", shareResult));
+    $notification.post(
+      "Lynk & Co Share",
+      "",
+      `${summarizeTask("Sign", signResult)} | ${summarizeTask("Share", shareResult)}`,
+    );
     $done();
   } catch (error) {
-    $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message + authHint);
+    $notification.post(
+      "Lynk & Co Share",
+      "",
+      `Share task failed: ${error.message}${typeof authHint === "string" ? authHint : ""}`,
+    );
     $done();
   }
 }
