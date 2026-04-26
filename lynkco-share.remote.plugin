@@ -6,6 +6,7 @@
 [Argument]
 articleId=1881101031748870144
 cronexp=0 8 * * *
+debugNotify=0
 
 [Script]
 http-request ^https?:\/\/h5-api\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/capture.bundle.js,requires-body=true,tag=lynkco-capture,timeout=20,enable=true
