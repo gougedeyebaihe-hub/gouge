@@ -33,27 +33,12 @@ function buildShareConfig(input) {
 }
 
 function parseTokenState(raw) {
-  if (!raw) {
-    return {
-      tokenState: { token: "", refreshToken: "" },
-      error: "",
-    };
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    return {
-      tokenState: {
-        token: parsed.token || "",
-        refreshToken: parsed.refreshToken || "",
-      },
-      error: "",
-    };
-  } catch (error) {
-    return {
-      tokenState: { token: "", refreshToken: "" },
-      error: "invalid",
-    };
-  }
+  if (!raw) return { token: "", refreshToken: "" };
+  const parsed = JSON.parse(raw);
+  return {
+    token: parsed.token || "",
+    refreshToken: parsed.refreshToken || "",
+  };
 }
 
 function serializeTokenState(tokenState) {
@@ -92,82 +77,82 @@ function buildSignString(input) {
   ].join("\n");
 }
 
-function stringToUtf8Bytes(input) {
-  const output = [];
-  for (let index = 0; index < input.length; index += 1) {
-    let codePoint = input.charCodeAt(index);
-    if (codePoint >= 0xd800 && codePoint <= 0xdbff && index + 1 < input.length) {
-      const next = input.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        codePoint = 0x10000 + ((codePoint - 0xd800) << 10) + (next - 0xdc00);
-        index += 1;
-      }
-    }
-
-    if (codePoint < 0x80) {
-      output.push(codePoint);
-    } else if (codePoint < 0x800) {
-      output.push(0xc0 | (codePoint >> 6));
-      output.push(0x80 | (codePoint & 0x3f));
-    } else if (codePoint < 0x10000) {
-      output.push(0xe0 | (codePoint >> 12));
-      output.push(0x80 | ((codePoint >> 6) & 0x3f));
-      output.push(0x80 | (codePoint & 0x3f));
-    } else {
-      output.push(0xf0 | (codePoint >> 18));
-      output.push(0x80 | ((codePoint >> 12) & 0x3f));
-      output.push(0x80 | ((codePoint >> 6) & 0x3f));
-      output.push(0x80 | (codePoint & 0x3f));
-    }
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
   }
-  return output;
+  return btoa(binary);
 }
 
 function rightRotate(value, bits) {
   return (value >>> bits) | (value << (32 - bits));
 }
 
-function sha256(bytes) {
-  const constants = [
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-  ];
+function sha256Bytes(inputBytes) {
   const hash = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
   ];
-  const message = bytes.slice();
-  const bitLength = message.length * 8;
-  message.push(0x80);
-  while (message.length % 64 !== 56) {
-    message.push(0);
-  }
-  const highLength = Math.floor(bitLength / 0x100000000);
-  const lowLength = bitLength >>> 0;
-  message.push((highLength >>> 24) & 0xff, (highLength >>> 16) & 0xff, (highLength >>> 8) & 0xff, highLength & 0xff);
-  message.push((lowLength >>> 24) & 0xff, (lowLength >>> 16) & 0xff, (lowLength >>> 8) & 0xff, lowLength & 0xff);
+  const k = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ];
 
-  for (let offset = 0; offset < message.length; offset += 64) {
-    const words = [];
+  const bitLength = inputBytes.length * 8;
+  const withOne = inputBytes.length + 1;
+  const paddedLength = withOne + ((64 - ((withOne + 8) % 64)) % 64) + 8;
+  const padded = new Uint8Array(paddedLength);
+  padded.set(inputBytes);
+  padded[inputBytes.length] = 0x80;
+
+  let remainingBits = bitLength;
+  for (let index = 0; index < 8; index += 1) {
+    padded[padded.length - 1 - index] = remainingBits & 0xff;
+    remainingBits = Math.floor(remainingBits / 256);
+  }
+
+  const words = new Uint32Array(64);
+
+  for (let offset = 0; offset < padded.length; offset += 64) {
     for (let index = 0; index < 16; index += 1) {
-      const wordOffset = offset + index * 4;
-      words[index] = (
-        (message[wordOffset] << 24)
-        | (message[wordOffset + 1] << 16)
-        | (message[wordOffset + 2] << 8)
-        | message[wordOffset + 3]
-      ) >>> 0;
+      const wordOffset = offset + (index * 4);
+      words[index] =
+        (padded[wordOffset] << 24) |
+        (padded[wordOffset + 1] << 16) |
+        (padded[wordOffset + 2] << 8) |
+        padded[wordOffset + 3];
     }
+
     for (let index = 16; index < 64; index += 1) {
-      const s0 = rightRotate(words[index - 15], 7) ^ rightRotate(words[index - 15], 18) ^ (words[index - 15] >>> 3);
-      const s1 = rightRotate(words[index - 2], 17) ^ rightRotate(words[index - 2], 19) ^ (words[index - 2] >>> 10);
-      words[index] = (words[index - 16] + s0 + words[index - 7] + s1) >>> 0;
+      const s0 =
+        rightRotate(words[index - 15], 7) ^
+        rightRotate(words[index - 15], 18) ^
+        (words[index - 15] >>> 3);
+      const s1 =
+        rightRotate(words[index - 2], 17) ^
+        rightRotate(words[index - 2], 19) ^
+        (words[index - 2] >>> 10);
+      words[index] = (
+        words[index - 16] +
+        s0 +
+        words[index - 7] +
+        s1
+      ) >>> 0;
     }
 
     let a = hash[0];
@@ -180,12 +165,18 @@ function sha256(bytes) {
     let h = hash[7];
 
     for (let index = 0; index < 64; index += 1) {
-      const s1 = rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25);
-      const choice = (e & f) ^ (~e & g);
-      const temp1 = (h + s1 + choice + constants[index] + words[index]) >>> 0;
-      const s0 = rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22);
-      const majority = (a & b) ^ (a & c) ^ (b & c);
-      const temp2 = (s0 + majority) >>> 0;
+      const s1 =
+        rightRotate(e, 6) ^
+        rightRotate(e, 11) ^
+        rightRotate(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = (h + s1 + ch + k[index] + words[index]) >>> 0;
+      const s0 =
+        rightRotate(a, 2) ^
+        rightRotate(a, 13) ^
+        rightRotate(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (s0 + maj) >>> 0;
 
       h = g;
       g = f;
@@ -207,64 +198,73 @@ function sha256(bytes) {
     hash[7] = (hash[7] + h) >>> 0;
   }
 
-  const output = [];
+  const output = new Uint8Array(32);
   for (let index = 0; index < hash.length; index += 1) {
-    output.push((hash[index] >>> 24) & 0xff);
-    output.push((hash[index] >>> 16) & 0xff);
-    output.push((hash[index] >>> 8) & 0xff);
-    output.push(hash[index] & 0xff);
+    const word = hash[index];
+    const outputOffset = index * 4;
+    output[outputOffset] = (word >>> 24) & 0xff;
+    output[outputOffset + 1] = (word >>> 16) & 0xff;
+    output[outputOffset + 2] = (word >>> 8) & 0xff;
+    output[outputOffset + 3] = word & 0xff;
   }
+
   return output;
 }
 
-function hmacSha256(keyBytes, messageBytes) {
-  let normalizedKey = keyBytes.slice();
-  if (normalizedKey.length > 64) {
-    normalizedKey = sha256(normalizedKey);
-  }
-  while (normalizedKey.length < 64) {
-    normalizedKey.push(0);
+function hmacSha256Bytes(keyBytes, messageBytes) {
+  const blockSize = 64;
+  let normalizedKey = keyBytes;
+
+  if (normalizedKey.length > blockSize) {
+    normalizedKey = sha256Bytes(normalizedKey);
   }
 
-  const innerKey = [];
-  const outerKey = [];
-  for (let index = 0; index < 64; index += 1) {
-    innerKey.push(normalizedKey[index] ^ 0x36);
-    outerKey.push(normalizedKey[index] ^ 0x5c);
+  if (normalizedKey.length < blockSize) {
+    const paddedKey = new Uint8Array(blockSize);
+    paddedKey.set(normalizedKey);
+    normalizedKey = paddedKey;
   }
-  return sha256(outerKey.concat(sha256(innerKey.concat(messageBytes))));
-}
 
-function bytesToBase64(bytes) {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  let output = "";
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index];
-    const second = index + 1 < bytes.length ? bytes[index + 1] : 0;
-    const third = index + 2 < bytes.length ? bytes[index + 2] : 0;
-    const combined = (first << 16) | (second << 8) | third;
-    output += alphabet[(combined >> 18) & 0x3f];
-    output += alphabet[(combined >> 12) & 0x3f];
-    output += index + 1 < bytes.length ? alphabet[(combined >> 6) & 0x3f] : "=";
-    output += index + 2 < bytes.length ? alphabet[combined & 0x3f] : "=";
+  const outerKeyPad = new Uint8Array(blockSize);
+  const innerKeyPad = new Uint8Array(blockSize);
+
+  for (let index = 0; index < blockSize; index += 1) {
+    outerKeyPad[index] = normalizedKey[index] ^ 0x5c;
+    innerKeyPad[index] = normalizedKey[index] ^ 0x36;
   }
-  return output;
+
+  const inner = new Uint8Array(blockSize + messageBytes.length);
+  inner.set(innerKeyPad);
+  inner.set(messageBytes, blockSize);
+
+  const innerHash = sha256Bytes(inner);
+  const outer = new Uint8Array(blockSize + innerHash.length);
+  outer.set(outerKeyPad);
+  outer.set(innerHash, blockSize);
+
+  return sha256Bytes(outer);
 }
 
 async function signBase64HmacSha256(appSecret, signString) {
-  return bytesToBase64(hmacSha256(stringToUtf8Bytes(appSecret), stringToUtf8Bytes(signString)));
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(appSecret);
+  const messageData = encoder.encode(signString);
+  const signatureBytes = hmacSha256Bytes(keyData, messageData);
+  return bytesToBase64(signatureBytes);
 }
 
 function getRandomBytes(length) {
-  const output = new Uint8Array(length);
-  if (typeof crypto !== "undefined" && crypto && typeof crypto.getRandomValues === "function") {
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const output = new Uint8Array(length);
     crypto.getRandomValues(output);
     return output;
   }
-  for (let index = 0; index < output.length; index += 1) {
-    output[index] = Math.floor(Math.random() * 256);
-  }
-  return output;
+
+  return Uint8Array.from(
+    Array.from({ length: length }, function() {
+      return Math.floor(Math.random() * 256);
+    }),
+  );
 }
 
 function formatRiskOpenTime(date) {
@@ -333,26 +333,6 @@ function buildShareReportingRequest(input) {
   };
 }
 
-function buildOpenArticleRequest(input) {
-  return {
-    method: "GET",
-    url: input.config.shareContentURL,
-    headers: {
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    },
-  };
-}
-
-function postShareSuccess(notification, resultText, config) {
-  notification.post(
-    "Lynk & Co Share",
-    "",
-    "Share task result: " + resultText + ". Article opened automatically.",
-    { openUrl: config.shareContentURL },
-  );
-}
-
 function buildSignedShareCodeContext(input) {
   const uri = "/app/v1/task/getShareCode";
   return {
@@ -387,21 +367,6 @@ function parseJson(data) {
   }
 }
 
-function getHttpStatus(response) {
-  return response && (response.status || response.statusCode) || 0;
-}
-
-function getApiMessage(payload) {
-  return payload && (payload.message || payload.msg || payload.errorMsg) || "";
-}
-
-function assertSuccessfulHttp(response, label) {
-  const status = getHttpStatus(response);
-  if (status && (status < 200 || status >= 300)) {
-    throw new Error(label + " request failed with HTTP " + status + ".");
-  }
-}
-
 function getShareCode(payload) {
   if (!payload || typeof payload !== "object") {
     throw new Error("Share code response is not valid JSON.");
@@ -413,12 +378,9 @@ function getShareCode(payload) {
 }
 
 function refreshTokenStateFromPayload(payload, currentState) {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Refresh token response is not valid JSON.");
-  }
   const centerTokenDto = payload && payload.data && payload.data.centerTokenDto;
   if (!centerTokenDto || !centerTokenDto.token) {
-    throw new Error(getApiMessage(payload) || "Refresh token response does not include token.");
+    return currentState;
   }
   return {
     token: centerTokenDto.token,
@@ -427,18 +389,10 @@ function refreshTokenStateFromPayload(payload, currentState) {
 }
 
 async function runCron() {
-  let authHint = "";
   try {
-    const parsedTokenState = parseTokenState($persistentStore.read(TOKEN_STATE_KEY));
-    if (parsedTokenState.error) {
-      $notification.post("Lynk & Co Share", "", "Stored token state is invalid. Open Lynk & Co once, then run again.");
-      $done();
-      return;
-    }
-
-    let tokenState = parsedTokenState.tokenState;
+    let tokenState = parseTokenState($persistentStore.read(TOKEN_STATE_KEY));
     if (!tokenState.token) {
-      $notification.post("Lynk & Co Share", "", "No token captured. Open Lynk & Co once, then run again.");
+      $notification.post("Lynk & Co Share", "", "No token captured yet.");
       $done();
       return;
     }
@@ -446,21 +400,14 @@ async function runCron() {
     const config = buildShareConfig(parseArgumentString(typeof $argument === "undefined" ? "" : $argument));
 
     if (tokenState.refreshToken) {
-      try {
-        const refreshRequest = buildRefreshTokenRequest({ config: config, tokenState: tokenState });
-        const refreshResult = await requestAsync($httpClient, "get", refreshRequest);
-        assertSuccessfulHttp(refreshResult.response, "Refresh token");
-        const refreshPayload = parseJson(refreshResult.data);
-        const refreshedTokenState = refreshTokenStateFromPayload(refreshPayload, tokenState);
-        if (refreshedTokenState.token !== tokenState.token || refreshedTokenState.refreshToken !== tokenState.refreshToken) {
-          $persistentStore.write(serializeTokenState(refreshedTokenState), TOKEN_STATE_KEY);
-          tokenState = refreshedTokenState;
-        }
-      } catch (error) {
-        authHint = " Auth may be stale; open Lynk & Co once, then run again.";
+      const refreshRequest = buildRefreshTokenRequest({ config: config, tokenState: tokenState });
+      const refreshResult = await requestAsync($httpClient, "get", refreshRequest);
+      const refreshPayload = parseJson(refreshResult.data);
+      const refreshedTokenState = refreshTokenStateFromPayload(refreshPayload, tokenState);
+      if (refreshedTokenState.token !== tokenState.token || refreshedTokenState.refreshToken !== tokenState.refreshToken) {
+        $persistentStore.write(serializeTokenState(refreshedTokenState), TOKEN_STATE_KEY);
+        tokenState = refreshedTokenState;
       }
-    } else {
-      authHint = " Open Lynk & Co once, then run again.";
     }
 
     const now = new Date();
@@ -483,7 +430,6 @@ async function runCron() {
       openTimeStamp: openTimeStamp,
     });
     const shareCodeResult = await requestAsync($httpClient, "get", shareCodeRequest);
-    assertSuccessfulHttp(shareCodeResult.response, "Share code");
     const shareCodePayload = parseJson(shareCodeResult.data);
     const shareCode = getShareCode(shareCodePayload);
 
@@ -492,18 +438,13 @@ async function runCron() {
       shareCode: shareCode,
     });
     const shareReportingResult = await requestAsync($httpClient, "post", shareReportingRequest);
-    assertSuccessfulHttp(shareReportingResult.response, "Share reporting");
     const shareReportingPayload = parseJson(shareReportingResult.data);
     const resultText = (shareReportingPayload && (shareReportingPayload.data || shareReportingPayload.message)) || "unknown";
 
-    const openArticleRequest = buildOpenArticleRequest({ config: config });
-    const openArticleResult = await requestAsync($httpClient, "get", openArticleRequest);
-    assertSuccessfulHttp(openArticleResult.response, "Open article");
-
-    postShareSuccess($notification, resultText, config);
+    $notification.post("Lynk & Co Share", "", "Share task result: " + resultText);
     $done();
   } catch (error) {
-    $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message + authHint);
+    $notification.post("Lynk & Co Share", "", "Share task failed: " + error.message);
     $done();
   }
 }
