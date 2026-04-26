@@ -6,6 +6,8 @@
 [Argument]
 articleId=1881101031748870144
 cronexp=0 8 * * *
+debugNotify=0
+shareEnabled=1
 
 [Script]
 http-request ^https?:\/\/h5-api\.lynkco\.com\/.* script-path=./capture.bundle.js,requires-body=true,tag=lynkco-capture,timeout=20,enable=true
