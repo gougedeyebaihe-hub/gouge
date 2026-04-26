@@ -254,6 +254,20 @@ async function signBase64HmacSha256(appSecret, signString) {
   return bytesToBase64(signatureBytes);
 }
 
+function buildSignedHeaders(input) {
+  return {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
+    "Content-Type": "application/json",
+    "X-Ca-Key": input.config.xCaKey,
+    "X-Ca-Nonce": input.nonce,
+    "X-Ca-Timestamp": input.timestamp,
+    "X-Ca-Signature": input.signature,
+    "X-Ca-Signature-Method": "HmacSHA256",
+    "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
+    token: input.tokenState.token,
+  };
+}
+
 function getRandomBytes(length) {
   if (typeof crypto !== "undefined" && crypto.getRandomValues) {
     const output = new Uint8Array(length);
@@ -295,13 +309,13 @@ function buildDailySignRequest(input) {
   return {
     method: "POST",
     url: "https://h5-api.lynkco.com/up/api/v1/user/sign",
-    headers: {
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
-      "Content-Type": "application/json",
-      "X-Ca-Key": input.config.xCaKey,
-      token: input.tokenState.token,
-    },
-    body: "{}",
+    headers: buildSignedHeaders({
+      config: input.config,
+      tokenState: input.tokenState,
+      nonce: input.nonce,
+      timestamp: input.timestamp,
+      signature: input.signature,
+    }),
   };
 }
 
@@ -341,7 +355,7 @@ function buildShareReportingRequest(input) {
     body: JSON.stringify({
       businessNo: input.config.articleId,
       eventData: {
-        firstClassification: "文章",
+        firstClassification: "\u6587\u7ae0",
         secondClassification: "",
       },
     }),
@@ -354,6 +368,20 @@ function buildSignedShareCodeContext(input) {
     uri: uri,
     signString: buildSignString({
       method: "GET",
+      uri: uri,
+      xCaKey: input.config.xCaKey,
+      xCaNonce: input.nonce,
+      xCaTimestamp: input.timestamp,
+    }),
+  };
+}
+
+function buildSignedDailySignContext(input) {
+  const uri = "/up/api/v1/user/sign";
+  return {
+    uri: uri,
+    signString: buildSignString({
+      method: "POST",
       uri: uri,
       xCaKey: input.config.xCaKey,
       xCaNonce: input.nonce,
@@ -383,10 +411,7 @@ function parseJson(data) {
 }
 
 function getApiMessage(payload) {
-  if (!payload || typeof payload !== "object") {
-    return "";
-  }
-  return payload.message || payload.msg || payload.errorMsg || "";
+  return (payload && (payload.message || payload.msg || payload.errorMsg)) || "";
 }
 
 function summarizeBody(data) {
@@ -408,8 +433,16 @@ function assertSuccessfulHttp(response, label, payload, data) {
   const status = getHttpStatus(response);
   if (status && (status < 200 || status >= 300)) {
     const apiMessage = getApiMessage(payload);
-    const bodySummary = summarizeBody(data || "");
-    throw new Error(label + " request failed with HTTP " + status + (apiMessage ? ": " + apiMessage : bodySummary ? ": " + bodySummary : "."));
+    const bodySummary = summarizeBody(data);
+    throw new Error(
+      label + " request failed with HTTP " + status + (
+        apiMessage
+          ? ": " + apiMessage
+          : bodySummary
+            ? ": " + bodySummary
+            : "."
+      ),
+    );
   }
 }
 
@@ -454,9 +487,20 @@ function summarizeResults(signResult, shareResult, shareEnabled) {
 
 async function runDailySignTask(input) {
   try {
+    const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
+    const timestamp = String(Date.now());
+    const signedContext = buildSignedDailySignContext({
+      config: input.config,
+      nonce: nonce,
+      timestamp: timestamp,
+    });
+    const signature = await signBase64HmacSha256(input.config.appSecret, signedContext.signString);
     const signRequest = buildDailySignRequest({
       config: input.config,
       tokenState: input.tokenState,
+      nonce: nonce,
+      timestamp: timestamp,
+      signature: signature,
     });
     const signResult = await requestAsync(input.httpClient, "post", signRequest);
     const signPayload = parseJson(signResult.data);
