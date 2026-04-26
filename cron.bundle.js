@@ -27,7 +27,7 @@ function buildShareConfig(input) {
     articleId,
     shareContentURL: source.shareContentURL || buildShareUrl(articleId),
     shareContentType: source.shareContentType == null ? 1 : source.shareContentType,
-    shareEnabled: ["1", "true", "yes", "on"].includes(String(source.shareEnabled == null ? "0" : source.shareEnabled).toLowerCase()),
+    shareEnabled: ["1", "true", "yes", "on"].includes(String(source.shareEnabled == null ? "1" : source.shareEnabled).toLowerCase()),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
   };
