@@ -340,7 +340,7 @@ function buildShareReportingRequest(input) {
     body: JSON.stringify({
       businessNo: input.config.articleId,
       eventData: {
-        firstClassification: "\u6587\u7ae0",
+        firstClassification: "文章",
         secondClassification: "",
       },
     }),
@@ -378,6 +378,25 @@ function parseJson(data) {
     return JSON.parse(data);
   } catch (error) {
     return null;
+  }
+}
+
+function getApiMessage(payload) {
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+  return payload.message || payload.msg || payload.errorMsg || "";
+}
+
+function getHttpStatus(response) {
+  return (response && (response.status || response.statusCode)) || 0;
+}
+
+function assertSuccessfulHttp(response, label, payload) {
+  const status = getHttpStatus(response);
+  if (status && (status < 200 || status >= 300)) {
+    const apiMessage = getApiMessage(payload);
+    throw new Error(label + " request failed with HTTP " + status + (apiMessage ? ": " + apiMessage : "."));
   }
 }
 
@@ -420,10 +439,8 @@ async function runDailySignTask(input) {
       tokenState: input.tokenState,
     });
     const signResult = await requestAsync(input.httpClient, "post", signRequest);
-    const signStatus = (signResult.response && (signResult.response.status || signResult.response.statusCode)) || 0;
-    if (signStatus && (signStatus < 200 || signStatus >= 300)) {
-      throw new Error("Sign request failed with HTTP " + signStatus + ".");
-    }
+    const signPayload = parseJson(signResult.data);
+    assertSuccessfulHttp(signResult.response, "Sign", signPayload);
     return { ok: true };
   } catch (error) {
     return {
@@ -455,11 +472,8 @@ async function runShareTask(input) {
       openTimeStamp: openTimeStamp,
     });
     const shareCodeResult = await requestAsync(input.httpClient, "get", shareCodeRequest);
-    const shareCodeStatus = (shareCodeResult.response && (shareCodeResult.response.status || shareCodeResult.response.statusCode)) || 0;
-    if (shareCodeStatus && (shareCodeStatus < 200 || shareCodeStatus >= 300)) {
-      throw new Error("Share code request failed with HTTP " + shareCodeStatus + ".");
-    }
     const shareCodePayload = parseJson(shareCodeResult.data);
+    assertSuccessfulHttp(shareCodeResult.response, "Share code", shareCodePayload);
     const shareCode = getShareCode(shareCodePayload);
 
     const shareReportingRequest = buildShareReportingRequest({
@@ -467,10 +481,8 @@ async function runShareTask(input) {
       shareCode: shareCode,
     });
     const shareReportingResult = await requestAsync(input.httpClient, "post", shareReportingRequest);
-    const shareReportingStatus = (shareReportingResult.response && (shareReportingResult.response.status || shareReportingResult.response.statusCode)) || 0;
-    if (shareReportingStatus && (shareReportingStatus < 200 || shareReportingStatus >= 300)) {
-      throw new Error("Share reporting request failed with HTTP " + shareReportingStatus + ".");
-    }
+    const shareReportingPayload = parseJson(shareReportingResult.data);
+    assertSuccessfulHttp(shareReportingResult.response, "Share reporting", shareReportingPayload);
 
     return { ok: true };
   } catch (error) {
@@ -497,11 +509,8 @@ async function runCron() {
       try {
         const refreshRequest = buildRefreshTokenRequest({ config: config, tokenState: tokenState });
         const refreshResult = await requestAsync($httpClient, "get", refreshRequest);
-        const refreshStatus = (refreshResult.response && (refreshResult.response.status || refreshResult.response.statusCode)) || 0;
-        if (refreshStatus && (refreshStatus < 200 || refreshStatus >= 300)) {
-          throw new Error("Refresh token request failed with HTTP " + refreshStatus + ".");
-        }
         const refreshPayload = parseJson(refreshResult.data);
+        assertSuccessfulHttp(refreshResult.response, "Refresh token", refreshPayload);
         const refreshedTokenState = refreshTokenStateFromPayload(refreshPayload, tokenState);
         if (refreshedTokenState.token !== tokenState.token || refreshedTokenState.refreshToken !== tokenState.refreshToken) {
           $persistentStore.write(serializeTokenState(refreshedTokenState), TOKEN_STATE_KEY);
