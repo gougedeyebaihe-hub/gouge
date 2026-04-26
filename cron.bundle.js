@@ -542,10 +542,6 @@ async function runCron() {
     }
 
     const signResult = await runDailySignTask({
-      config: input.config,
-      tokenState: input.tokenState,
-    });
-    const signResult = await runDailySignTask({
       config: config,
       tokenState: tokenState,
       httpClient: $httpClient,
