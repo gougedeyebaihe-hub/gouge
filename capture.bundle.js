@@ -1,23 +1,25 @@
 const TOKEN_STATE_KEY = "lynkco.share.tokenState";
 
+function parseArgumentString(argument) {
+  if (!argument) return {};
+  return argument
+    .split("&")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .reduce((accumulator, entry) => {
+      const parts = entry.split("=");
+      const key = (parts.shift() || "").trim();
+      if (!key) return accumulator;
+      accumulator[key] = parts.join("=").trim();
+      return accumulator;
+    }, {});
+}
+
 function serializeTokenState(tokenState) {
   return JSON.stringify({
     token: tokenState.token || "",
     refreshToken: tokenState.refreshToken || "",
   });
-}
-
-function parseTokenState(raw) {
-  if (!raw) return { token: "", refreshToken: "" };
-  try {
-    const parsed = JSON.parse(raw);
-    return {
-      token: parsed.token || "",
-      refreshToken: parsed.refreshToken || "",
-    };
-  } catch (error) {
-    return { token: "", refreshToken: "" };
-  }
 }
 
 function extractTokenState(request) {
@@ -30,6 +32,19 @@ function extractTokenState(request) {
   const refreshToken = url.searchParams.get("refreshToken") || "";
 
   return { token, refreshToken };
+}
+
+function safeParseTokenState(raw) {
+  if (!raw) return { token: "", refreshToken: "" };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      token: parsed.token || "",
+      refreshToken: parsed.refreshToken || "",
+    };
+  } catch (error) {
+    return { token: "", refreshToken: "" };
+  }
 }
 
 function parseJson(data) {
@@ -66,13 +81,6 @@ function findTokenState(value) {
   return { token: "", refreshToken: "" };
 }
 
-function mergeExtractedTokenState(firstState, secondState) {
-  return {
-    token: secondState.token || firstState.token || "",
-    refreshToken: secondState.refreshToken || firstState.refreshToken || "",
-  };
-}
-
 function extractBodyTokenState(body) {
   return findTokenState(parseJson(body));
 }
@@ -92,61 +100,35 @@ function writeTokenState(store, tokenState) {
   return store.write(serializeTokenState(tokenState), TOKEN_STATE_KEY);
 }
 
-function getGlobalRequest() {
-  return typeof $request === "undefined" ? null : $request;
-}
-
-function getGlobalResponse() {
-  return typeof $response === "undefined" ? null : $response;
-}
-
-function getGlobalStore() {
-  return typeof $persistentStore === "undefined" ? null : $persistentStore;
-}
-
-function getGlobalNotification() {
-  return typeof $notification === "undefined" ? null : $notification;
-}
-
-function getGlobalDone() {
-  return typeof $done === "undefined" ? function() {} : $done;
+function shouldNotifyForDebug(argument) {
+  const value = parseArgumentString(argument).debugNotify;
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
 function runCapture(options = {}) {
-  const request = options.request || getGlobalRequest();
-  const response = options.response || getGlobalResponse();
-  const notification = options.notification || getGlobalNotification();
-  const done = options.done || getGlobalDone();
-
+  const request = options.request || $request;
+  const response = options.response || (typeof $response === "undefined" ? null : $response);
+  const store = options.store || $persistentStore;
+  const notification = options.notification || $notification;
+  const argument = options.argument || (typeof $argument === "undefined" ? "" : $argument);
+  const done = options.done || $done;
   if (!request && !response) {
-    if (notification) {
-      notification.post(
-        "Lynk & Co Share",
-        "",
-        "Capture waits for Lynk & Co traffic. Open the app once, then run share.",
-      );
-    }
     done({});
     return;
   }
 
-  const store = options.store || getGlobalStore();
-  if (!store) {
-    if (notification) {
-      notification.post("Lynk & Co Share", "", "Capture store is unavailable.");
-    }
-    done({});
-    return;
-  }
-
-  const tokenState = mergeExtractedTokenState(
-    mergeExtractedTokenState(extractTokenState(request), extractBodyTokenState(request && request.body)),
+  const tokenState = mergeTokenState(
+    mergeTokenState(extractTokenState(request), extractBodyTokenState(request && request.body)),
     extractBodyTokenState(response && response.body),
   );
 
   if (hasTokenState(tokenState)) {
-    const previousTokenState = parseTokenState(store.read(TOKEN_STATE_KEY));
+    const previousTokenState = safeParseTokenState(store.read(TOKEN_STATE_KEY));
     writeTokenState(store, mergeTokenState(previousTokenState, tokenState));
+    if (notification && shouldNotifyForDebug(argument)) {
+      notification.post("Lynk & Co Share", "", "Captured Lynk & Co auth state.");
+    }
   }
 
   done({});
