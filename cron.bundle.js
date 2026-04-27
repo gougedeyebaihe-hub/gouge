@@ -34,11 +34,22 @@ function buildShareConfig(input) {
 }
 
 function parseTokenState(raw) {
-  if (!raw) return { token: "", refreshToken: "" };
+  if (!raw) {
+    return {
+      token: "",
+      refreshToken: "",
+      oauthAccessToken: "",
+      oauthRefreshToken: "",
+      authorization: "",
+    };
+  }
   const parsed = JSON.parse(raw);
   return {
     token: parsed.token || "",
     refreshToken: parsed.refreshToken || "",
+    oauthAccessToken: parsed.oauthAccessToken || "",
+    oauthRefreshToken: parsed.oauthRefreshToken || "",
+    authorization: parsed.authorization || "",
   };
 }
 
@@ -46,6 +57,9 @@ function serializeTokenState(tokenState) {
   return JSON.stringify({
     token: tokenState.token || "",
     refreshToken: tokenState.refreshToken || "",
+    oauthAccessToken: tokenState.oauthAccessToken || "",
+    oauthRefreshToken: tokenState.oauthRefreshToken || "",
+    authorization: tokenState.authorization || "",
   });
 }
 
@@ -496,6 +510,9 @@ function refreshTokenStateFromPayload(payload, currentState) {
   return {
     token: centerTokenDto.token,
     refreshToken: centerTokenDto.refreshToken || currentState.refreshToken,
+    oauthAccessToken: currentState.oauthAccessToken || "",
+    oauthRefreshToken: currentState.oauthRefreshToken || "",
+    authorization: currentState.authorization || "",
   };
 }
 
