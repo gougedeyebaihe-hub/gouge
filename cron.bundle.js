@@ -503,6 +503,33 @@ function appendAuthHint(message, authHint) {
   return authHint ? message + authHint : message;
 }
 
+function needsOpenAppHint(message) {
+  if (!message) {
+    return false;
+  }
+  const normalized = String(message).toLowerCase();
+  return [
+    "uaa.oauthaccesstoken.not.exist",
+    "oauthaccesstoken",
+    "token expired",
+    "unauthorized",
+    "access token",
+  ].some(function(marker) {
+    return normalized.includes(marker);
+  });
+}
+
+function appendOpenAppHint(message) {
+  const hint = " Open Lynk & Co once, then run again.";
+  if (
+    !needsOpenAppHint(message) ||
+    String(message).toLowerCase().includes(hint.trim().toLowerCase())
+  ) {
+    return message;
+  }
+  return message + hint;
+}
+
 function summarizeTask(name, result) {
   if (result.ok) {
     return name + ": ok";
@@ -541,7 +568,7 @@ async function runDailySignTask(input) {
   } catch (error) {
     return {
       ok: false,
-      message: appendAuthHint(error.message, input.authHint),
+      message: appendOpenAppHint(appendAuthHint(error.message, input.authHint)),
     };
   }
 }
@@ -584,7 +611,7 @@ async function runShareTask(input) {
   } catch (error) {
     return {
       ok: false,
-      message: appendAuthHint(error.message, input.authHint),
+      message: appendOpenAppHint(appendAuthHint(error.message, input.authHint)),
     };
   }
 }
