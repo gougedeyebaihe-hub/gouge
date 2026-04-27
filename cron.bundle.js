@@ -429,6 +429,34 @@ function getHttpStatus(response) {
   return (response && (response.status || response.statusCode)) || 0;
 }
 
+function isSuccessMarker(value) {
+  if (value == null || value === "") {
+    return true;
+  }
+  if (typeof value === "number") {
+    return value === 0 || value === 200;
+  }
+  return ["0", "200", "success", "ok", "true"].includes(
+    String(value).trim().toLowerCase(),
+  );
+}
+
+function getBusinessFailureMessage(payload) {
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+  if (payload.success === false) {
+    return getApiMessage(payload) || "business check failed";
+  }
+  if (!isSuccessMarker(payload.code)) {
+    return getApiMessage(payload) || "code " + payload.code;
+  }
+  if (!isSuccessMarker(payload.status)) {
+    return getApiMessage(payload) || "status " + payload.status;
+  }
+  return "";
+}
+
 function assertSuccessfulHttp(response, label, payload, data) {
   const status = getHttpStatus(response);
   if (status && (status < 200 || status >= 300)) {
@@ -443,6 +471,10 @@ function assertSuccessfulHttp(response, label, payload, data) {
             : "."
       ),
     );
+  }
+  const businessFailureMessage = getBusinessFailureMessage(payload);
+  if (businessFailureMessage) {
+    throw new Error(label + " request failed: " + businessFailureMessage);
   }
 }
 
