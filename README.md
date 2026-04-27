@@ -39,3 +39,16 @@ Import that generated remote plugin into Loon instead of the local one.
 - fixed article id only
 - no home page article discovery
 - no iOS UI automation
+
+## One-time auth probe
+
+If you want to inspect whether Lynk & Co returns extra OAuth-style auth fields during login or refresh, use the separate probe plugin instead of the daily task plugin:
+
+- local: `loon/lynkco-share/lynkco-auth-probe.plugin`
+- remote: `lynkco-auth-probe.remote.plugin`
+
+This probe plugin:
+
+- enables `debugNotify=1` by default
+- only runs capture scripts
+- does not include any cron task
