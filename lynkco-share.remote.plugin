@@ -6,13 +6,13 @@
 [Argument]
 articleId=1881101031748870144
 cronexp=0 8 * * *
-debugNotify=0
+debugNotify=1
 shareEnabled=1
 
 [Script]
-http-request ^https?:\/\/h5-api\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/capture.bundle.js?v=20260427c,requires-body=true,tag=lynkco-capture,timeout=20,enable=true
-http-response ^https?:\/\/h5-api\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/capture.bundle.js?v=20260427c,requires-body=true,tag=lynkco-capture-response,timeout=20,enable=true
-cron "0 8 * * *" script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/cron.bundle.js?v=20260427c,tag=lynkco-share,timeout=60,enable=true
+http-request ^https?:\/\/h5-api\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/capture.bundle.js?v=20260427d,requires-body=true,tag=lynkco-capture,timeout=20,enable=true
+http-response ^https?:\/\/h5-api\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/capture.bundle.js?v=20260427d,requires-body=true,tag=lynkco-capture-response,timeout=20,enable=true
+cron "0 8 * * *" script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/cron.bundle.js?v=20260427d,tag=lynkco-share,timeout=60,enable=true
 
 [MITM]
 hostname = h5-api.lynkco.com,h5.lynkco.com
