@@ -38,6 +38,7 @@ function buildShareConfig(input) {
     shareContentType: source.shareContentType == null ? 1 : source.shareContentType,
     shareEnabled: truthyFlag(source.shareEnabled, true),
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
+    pingNotify: truthyFlag(source.pingNotify, true),
     debugNotify: truthyFlag(source.debugNotify, true),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
@@ -776,6 +777,14 @@ async function runAutoCapture(options = {}) {
     if (!request && !response) {
       done();
       return;
+    }
+
+    if (config.pingNotify) {
+      notification.post(
+        "Lynk & Co Share",
+        "",
+        "Script hit: " + (response ? "response" : "request") + " " + ((request && request.url) || ""),
+      );
     }
 
     const previousTokenState = parseTokenState(store.read(TOKEN_STATE_KEY));
