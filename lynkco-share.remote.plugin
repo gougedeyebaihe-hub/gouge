@@ -5,14 +5,14 @@
 
 [Argument]
 articleId=1881101031748870144
-debugNotify=1
+debugNotify=0
 shareEnabled=1
 autoRunOnCapture=1
-pingNotify=1
+pingNotify=0
 
 [Script]
-http-request ^https?:\/\/(h5-api|h5)\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260501f,requires-body=true,tag=lynkco-auto-capture,timeout=90,enable=true
-http-response ^https?:\/\/(h5-api|h5)\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260501f,requires-body=true,tag=lynkco-auto-run,timeout=90,enable=true
+http-request ^https?:\/\/(h5-api|h5)\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260501g,requires-body=true,tag=lynkco-auto-capture,timeout=90,enable=true
+http-response ^https?:\/\/(h5-api|h5)\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260501g,requires-body=true,tag=lynkco-auto-run,timeout=90,enable=true
 
 [MITM]
 hostname = h5-api.lynkco.com,h5.lynkco.com

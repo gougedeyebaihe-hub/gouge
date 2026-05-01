@@ -3,7 +3,7 @@ const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
 const DEFAULT_ARTICLE_ID = "1881101031748870144";
-const AUTO_LOCK_TTL_MS = 120000;
+const AUTO_LOCK_TTL_MS = 600000;
 
 function parseArgumentString(argument) {
   if (!argument) return {};
@@ -38,8 +38,8 @@ function buildShareConfig(input) {
     shareContentType: source.shareContentType == null ? 1 : source.shareContentType,
     shareEnabled: truthyFlag(source.shareEnabled, true),
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
-    pingNotify: truthyFlag(source.pingNotify, true),
-    debugNotify: truthyFlag(source.debugNotify, true),
+    pingNotify: truthyFlag(source.pingNotify, false),
+    debugNotify: truthyFlag(source.debugNotify, false),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
   };
@@ -255,7 +255,6 @@ function markAutoRunFinished(store, date, result) {
     lastResult: result,
     finishedAt: new Date().toISOString(),
   }), AUTO_RUN_STATE_KEY);
-  store.write("", AUTO_RUN_LOCK_KEY);
 }
 
 function clearAutoRunLock(store) {
