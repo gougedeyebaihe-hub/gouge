@@ -230,9 +230,6 @@ function shouldStartAutoRun(input) {
   if (!input.tokenState.token) return { ok: false, reason: "missing token" };
 
   const today = localDayKey(input.now);
-  const state = parseAutoRunState(input.store.read(AUTO_RUN_STATE_KEY));
-  if (state.lastRunDate === today) return { ok: false, reason: "already ran today" };
-
   const lock = parseAutoRunLock(input.store.read(AUTO_RUN_LOCK_KEY));
   if (lock.date === today && input.now.getTime() - lock.startedAt < AUTO_LOCK_TTL_MS) {
     return { ok: false, reason: "run in progress" };
