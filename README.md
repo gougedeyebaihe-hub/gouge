@@ -4,22 +4,22 @@
 
 ## Current Behavior / 当前行为
 
-The active remote plugin no longer uses a fixed 8:00 cron schedule. It runs when Loon detects Lynk & Co auth traffic from `h5-api.lynkco.com`.
+The active remote plugin no longer uses a fixed 8:00 cron schedule. It marks a local trigger when Loon detects Lynk & Co auth traffic from `h5-api.lynkco.com`, then a short cron runner checks that local trigger and runs once per day.
 
-当前远程插件不再使用固定早上 8 点的定时任务。它会在 Loon 检测到领克 App 的 `h5-api.lynkco.com` 认证流量后触发。
+当前远程插件不再使用固定早上 8 点的定时任务。它会在 Loon 检测到领克 App 的 `h5-api.lynkco.com` 认证流量后写入本地触发标记，然后由短周期 cron 读取这个本地标记并每天只执行一次。
 
 Flow:
 
 流程：
 
 1. `http-request` saves the latest token state only.
-2. `http-response` saves token state again, then checks whether today's task has already run.
-3. If today's task has not run, it executes sign-in and fixed-article share once.
+2. `http-response` saves token state again and writes today's local trigger marker.
+3. `cron */5` checks the local marker; if today's task has not run, it executes sign-in and fixed-article share once.
 4. If today's task already ran, later token detections only update token state and do not repeat the task.
 
 1. `http-request` 只负责保存最新 token 状态。
-2. `http-response` 再次保存 token 状态，并检查当天任务是否已经执行过。
-3. 如果当天还没执行，就自动执行签到和固定文章分享。
+2. `http-response` 再次保存 token 状态，并写入当天本地触发标记。
+3. `cron */5` 检查本地标记；如果当天还没执行，就自动执行签到和固定文章分享。
 4. 如果当天已经执行过，后续再次检测到 token 只更新 token，不重复执行任务。
 
 ## Active Files / 当前有效文件
