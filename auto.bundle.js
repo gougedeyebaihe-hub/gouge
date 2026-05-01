@@ -38,7 +38,7 @@ function buildShareConfig(input) {
     shareContentType: source.shareContentType == null ? 1 : source.shareContentType,
     shareEnabled: truthyFlag(source.shareEnabled, true),
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
-    debugNotify: truthyFlag(source.debugNotify, false),
+    debugNotify: truthyFlag(source.debugNotify, true),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
   };
@@ -225,8 +225,7 @@ function parseAutoRunLock(raw) {
 
 function shouldStartAutoRun(input) {
   if (!input.config.autoRunOnCapture) return { ok: false, reason: "disabled" };
-  if (!input.allowRun) return { ok: false, reason: "not response runner" };
-  if (!input.detectedTokenNow) return { ok: false, reason: "no token detected in this response" };
+  if (!input.detectedTokenNow) return { ok: false, reason: "no token detected in this script run" };
   if (!input.tokenState.token) return { ok: false, reason: "missing token" };
 
   const today = localDayKey(input.now);
@@ -803,7 +802,6 @@ async function runAutoCapture(options = {}) {
     const now = new Date();
     const gate = shouldStartAutoRun({
       config,
-      allowRun: Boolean(response),
       detectedTokenNow,
       now,
       store,
@@ -811,6 +809,9 @@ async function runAutoCapture(options = {}) {
     });
 
     if (!gate.ok) {
+      if (detectedTokenNow && config.debugNotify) {
+        notification.post("Lynk & Co Share", "", "Captured token, skipped auto run: " + gate.reason + ".");
+      }
       done({});
       return;
     }
