@@ -225,13 +225,11 @@ function parseAutoRunLock(raw) {
 
 function shouldStartAutoRun(input) {
   if (!input.config.autoRunOnCapture) return { ok: false, reason: "disabled" };
-  if (!input.allowRun) return { ok: false, reason: "not scheduled runner" };
+  if (!input.allowRun) return { ok: false, reason: "not response runner" };
+  if (!input.detectedTokenNow) return { ok: false, reason: "no token detected in this response" };
   if (!input.tokenState.token) return { ok: false, reason: "missing token" };
 
   const today = localDayKey(input.now);
-  const trigger = parseAutoTrigger(input.store.read(AUTO_TRIGGER_KEY));
-  if (trigger.date !== today) return { ok: false, reason: "no token detected today" };
-
   const state = parseAutoRunState(input.store.read(AUTO_RUN_STATE_KEY));
   if (state.lastRunDate === today) return { ok: false, reason: "already ran today" };
 
@@ -765,41 +763,6 @@ async function runDailyTasks(input) {
   return summarizeResults(signResult, shareResult, config.shareEnabled);
 }
 
-async function runScheduledAuto(options) {
-  const store = options.store;
-  const notification = options.notification;
-  const httpClient = options.httpClient;
-  const config = options.config;
-  const done = options.done;
-  const now = new Date();
-
-  try {
-    const tokenState = parseTokenState(store.read(TOKEN_STATE_KEY));
-    const gate = shouldStartAutoRun({
-      config,
-      allowRun: true,
-      now,
-      store,
-      tokenState,
-    });
-
-    if (!gate.ok) {
-      done();
-      return;
-    }
-
-    markAutoRunStarted(store, gate.today, now);
-    const summary = await runDailyTasks({ config, tokenState, store, httpClient });
-    markAutoRunFinished(store, gate.today, summary);
-    notification.post("Lynk & Co Share", "", summary);
-    done();
-  } catch (error) {
-    clearAutoRunLock(store);
-    notification.post("Lynk & Co Share", "", "Auto run failed: " + error.message);
-    done();
-  }
-}
-
 async function runAutoCapture(options = {}) {
   const request = options.request || (typeof $request === "undefined" ? null : $request);
   const response = options.response || (typeof $response === "undefined" ? null : $response);
@@ -812,7 +775,7 @@ async function runAutoCapture(options = {}) {
 
   try {
     if (!request && !response) {
-      await runScheduledAuto({ store, notification, httpClient, config, done });
+      done();
       return;
     }
 
@@ -823,7 +786,8 @@ async function runAutoCapture(options = {}) {
     );
 
     let tokenState = previousTokenState;
-    if (hasTokenState(capturedTokenState)) {
+    const detectedTokenNow = hasTokenState(capturedTokenState);
+    if (detectedTokenNow) {
       tokenState = mergeTokenState(previousTokenState, capturedTokenState);
       store.write(serializeTokenState(tokenState), TOKEN_STATE_KEY);
       markAutoTrigger(store, localDayKey(new Date()));
@@ -836,6 +800,25 @@ async function runAutoCapture(options = {}) {
       }
     }
 
+    const now = new Date();
+    const gate = shouldStartAutoRun({
+      config,
+      allowRun: Boolean(response),
+      detectedTokenNow,
+      now,
+      store,
+      tokenState,
+    });
+
+    if (!gate.ok) {
+      done({});
+      return;
+    }
+
+    markAutoRunStarted(store, gate.today, now);
+    const summary = await runDailyTasks({ config, tokenState, store, httpClient });
+    markAutoRunFinished(store, gate.today, summary);
+    notification.post("Lynk & Co Share", "", summary);
     done({});
   } catch (error) {
     clearAutoRunLock(store);
