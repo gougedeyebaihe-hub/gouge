@@ -50,6 +50,38 @@ Current script cache version:
 auto.bundle.js?v=20260501h
 ```
 
+## Repository Contents / 仓库内容
+
+The active repository is intentionally small:
+
+当前仓库有意保持精简：
+
+- `lynkco-share.remote.plugin`: Loon remote plugin entry
+- `auto.bundle.js`: active token capture and task runner
+- `README.md`: usage, parameters, and troubleshooting notes
+
+- `lynkco-share.remote.plugin`：Loon 远程插件入口
+- `auto.bundle.js`：当前有效的 token 捕获和任务执行脚本
+- `README.md`：使用方法、参数和排查说明
+
+Removed legacy files:
+
+已删除旧文件：
+
+- old fixed-time cron runner
+- old capture-only script
+- old local plugin file
+- old auth probe plugin
+- temporary Codex permission test files
+- outdated planning docs and tests for earlier designs
+
+- 旧版固定时间 cron 脚本
+- 旧版只抓取脚本
+- 旧版本地插件文件
+- 旧版认证探针插件
+- 临时 Codex 权限测试文件
+- 早期方案的过期计划文档和测试
+
 ## How It Works / 工作方式
 
 The plugin no longer uses a fixed 8:00 cron schedule. It runs when Lynk & Co app traffic is seen by Loon.
