@@ -47,7 +47,7 @@ Current script cache version:
 当前脚本缓存版本：
 
 ```text
-auto.bundle.js?v=20260512c
+auto.bundle.js?v=20260512d
 ```
 
 ## Repository Contents / 仓库内容
@@ -111,7 +111,7 @@ Current arguments:
 当前参数：
 
 ```text
-articleId=1881101031748870144
+articleId=
 debugNotify=1
 shareEnabled=1
 autoRunOnCapture=1
@@ -122,13 +122,13 @@ Meaning:
 
 参数含义：
 
-- `articleId`: fixed article id used for the share task
+- `articleId`: optional fixed article id override; leave empty to use the first article from the Information page
 - `debugNotify`: set to `1` to notify when auth state is captured
 - `shareEnabled`: set to `0` to run sign-in only
 - `autoRunOnCapture`: set to `0` to disable automatic execution after token capture
 - `pingNotify`: set to `1` to notify every script hit for debugging
 
-- `articleId`：分享任务使用的固定文章 ID
+- `articleId`：可选的固定文章 ID；留空时自动使用资讯页第 1 篇文章
 - `debugNotify`：设为 `1` 后，抓到认证状态时会通知
 - `shareEnabled`：设为 `0` 后只执行签到，不执行分享
 - `autoRunOnCapture`：设为 `0` 后关闭检测 token 自动执行
@@ -152,13 +152,13 @@ Loon 中必须对这些域名开启并信任 MITM。
 ## Daily Use / 日常使用
 
 1. Update the remote plugin in Loon.
-2. Confirm the script URL contains `v=20260512c`.
+2. Confirm the script URL contains `v=20260512d`.
 3. Confirm MITM is enabled.
 4. Open Lynk & Co once during the day.
 5. Wait for `Sign: ok | Share: ok`.
 
 1. 在 Loon 中更新远程插件。
-2. 确认脚本 URL 包含 `v=20260512c`。
+2. 确认脚本 URL 包含 `v=20260512d`。
 3. 确认 MITM 已启用。
 4. 当天打开一次领克 App。
 5. 等待 `Sign: ok | Share: ok`。
@@ -168,13 +168,13 @@ Loon 中必须对这些域名开启并信任 MITM。
 - Loon cannot automatically open Lynk & Co on iOS.
 - The plugin depends on Lynk & Co producing traffic that Loon can see.
 - If the app does not refresh token state, no task will run.
-- The share task uses a fixed article id. Random article discovery is not implemented.
+- The share task uses the first article from the Information page by default. If article discovery fails, it falls back to the built-in article id.
 - Expanding MITM to all `*.lynkco.com` previously made login and page loading unstable, so the plugin keeps a narrow host list.
 
 - Loon 不能在 iOS 上自动打开领克 App。
 - 插件依赖领克 App 产生 Loon 能看到的流量。
 - 如果 App 没有刷新 token 状态，任务不会执行。
-- 分享任务使用固定文章 ID，没有实现首页随机找文章。
+- 分享任务默认使用资讯页第 1 篇文章；如果自动发现失败，会回退到内置文章 ID。
 - 之前尝试扩大到 `*.lynkco.com` 会影响登录和页面加载，所以插件保持窄域名匹配。
 
 ## Troubleshooting / 排查
@@ -183,12 +183,12 @@ If nothing happens:
 
 如果没有任何反应：
 
-1. Make sure the plugin is updated to `v=20260512c`.
+1. Make sure the plugin is updated to `v=20260512d`.
 2. Make sure MITM is enabled for `h5-api.lynkco.com` and `h5.lynkco.com`.
 3. Temporarily set `pingNotify=1` to confirm whether the script is being hit.
 4. Temporarily set `debugNotify=1` to confirm whether token state is captured.
 
-1. 确认插件已更新到 `v=20260512c`。
+1. 确认插件已更新到 `v=20260512d`。
 2. 确认 `h5-api.lynkco.com` 和 `h5.lynkco.com` 已开启 MITM。
 3. 临时把 `pingNotify=1`，确认脚本是否命中。
 4. 临时把 `debugNotify=1`，确认是否抓到 token 状态。

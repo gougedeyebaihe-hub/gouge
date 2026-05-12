@@ -2,7 +2,7 @@ const TOKEN_STATE_KEY = "lynkco.share.tokenState";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const DEFAULT_ARTICLE_ID = "1881101031748870144";
+const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 
 function parseArgumentString(argument) {
@@ -31,10 +31,12 @@ function buildShareUrl(articleId) {
 
 function buildShareConfig(input) {
   const source = input || {};
-  const articleId = source.articleId || DEFAULT_ARTICLE_ID;
+  const articleId = source.articleId || "";
+  const fallbackArticleId = source.fallbackArticleId || DEFAULT_FALLBACK_ARTICLE_ID;
   return {
     articleId,
-    shareContentURL: source.shareContentURL || buildShareUrl(articleId),
+    fallbackArticleId,
+    shareContentURL: source.shareContentURL || (articleId ? buildShareUrl(articleId) : ""),
     shareContentType: source.shareContentType == null ? 1 : source.shareContentType,
     shareEnabled: truthyFlag(source.shareEnabled, true),
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
@@ -562,6 +564,23 @@ function buildShareReportingRequest(input) {
   };
 }
 
+function buildSignedGetRequest(input) {
+  return {
+    method: "GET",
+    url: input.url,
+    headers: Object.assign({
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
+      "Content-Type": "application/json",
+      "X-Ca-Key": input.config.xCaKey,
+      "X-Ca-Nonce": input.nonce,
+      "X-Ca-Timestamp": input.timestamp,
+      "X-Ca-Signature": input.signature,
+      "X-Ca-Signature-Method": "HmacSHA256",
+      "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
+    }, buildAuthHeaders(input.tokenState), input.extraHeaders || {}),
+  };
+}
+
 function buildSignedDailySignContext(input) {
   const uri = "/up/api/v1/user/sign";
   return {
@@ -577,6 +596,32 @@ function buildSignedDailySignContext(input) {
 
 function buildSignedShareCodeContext(input) {
   const uri = "/app/v1/task/getShareCode";
+  return {
+    signString: buildSignString({
+      method: "GET",
+      uri,
+      xCaKey: input.config.xCaKey,
+      xCaNonce: input.nonce,
+      xCaTimestamp: input.timestamp,
+    }),
+  };
+}
+
+function buildSignedInformationConfigContext(input) {
+  const uri = "/app/explore/home-page/config/pccid/get?pageCode=LYNKCO_APP_1028";
+  return {
+    signString: buildSignString({
+      method: "GET",
+      uri,
+      xCaKey: input.config.xCaKey,
+      xCaNonce: input.nonce,
+      xCaTimestamp: input.timestamp,
+    }),
+  };
+}
+
+function buildSignedInformationArticleContext(input) {
+  const uri = "/app/explore/home-page/article?articlePccId=" + encodeURIComponent(input.pccId);
   return {
     signString: buildSignString({
       method: "GET",
@@ -663,6 +708,94 @@ function refreshTokenStateFromPayload(payload, currentState) {
   };
 }
 
+function getInformationPagePccId(payload) {
+  const items = payload && payload.data;
+  if (!Array.isArray(items)) throw new Error("Information config response is not valid.");
+  const contentPosition = items.find((item) => item && String(item.cptCode || "") === "1009" && item.pccId);
+  if (!contentPosition) throw new Error("Information content position was not found.");
+  return String(contentPosition.pccId);
+}
+
+function getFirstArticleFromList(payload) {
+  const items = payload && payload.data;
+  if (!Array.isArray(items) || items.length === 0) throw new Error("Information article list is empty.");
+
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const candidates = [item.data && item.data.data, item.data, item];
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== "object") continue;
+      const articleId = candidate.id || candidate.articleId || candidate.contentId;
+      if (!articleId) continue;
+      return {
+        articleId: String(articleId),
+        shareContentURL: buildShareUrl(String(articleId)),
+      };
+    }
+  }
+
+  throw new Error("Information article list does not include a usable article id.");
+}
+
+async function resolveShareArticle(input) {
+  if (input.config.articleId) {
+    return {
+      articleId: input.config.articleId,
+      shareContentURL: input.config.shareContentURL || buildShareUrl(input.config.articleId),
+    };
+  }
+
+  const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
+  const timestamp = String(Date.now());
+  const configContext = buildSignedInformationConfigContext({ config: input.config, nonce, timestamp });
+  const configSignature = await signBase64HmacSha256(input.config.appSecret, configContext.signString);
+  const informationConfigRequest = buildSignedGetRequest({
+    config: input.config,
+    tokenState: input.tokenState,
+    nonce,
+    timestamp,
+    signature: configSignature,
+    url: "https://h5-api.lynkco.com/app/explore/home-page/config/pccid/get?pageCode=LYNKCO_APP_1028",
+  });
+  const informationConfigResult = await requestAsync(input.httpClient, "get", informationConfigRequest);
+  const informationConfigPayload = parseJson(informationConfigResult.data);
+  assertSuccessfulHttp(
+    informationConfigResult.response,
+    "Information config",
+    informationConfigPayload,
+    informationConfigResult.data,
+  );
+
+  const pccId = getInformationPagePccId(informationConfigPayload);
+  const articleNonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
+  const articleTimestamp = String(Date.now());
+  const articleContext = buildSignedInformationArticleContext({
+    config: input.config,
+    nonce: articleNonce,
+    timestamp: articleTimestamp,
+    pccId,
+  });
+  const articleSignature = await signBase64HmacSha256(input.config.appSecret, articleContext.signString);
+  const informationArticleRequest = buildSignedGetRequest({
+    config: input.config,
+    tokenState: input.tokenState,
+    nonce: articleNonce,
+    timestamp: articleTimestamp,
+    signature: articleSignature,
+    url: "https://h5-api.lynkco.com/app/explore/home-page/article?articlePccId=" + encodeURIComponent(pccId),
+  });
+  const informationArticleResult = await requestAsync(input.httpClient, "get", informationArticleRequest);
+  const informationArticlePayload = parseJson(informationArticleResult.data);
+  assertSuccessfulHttp(
+    informationArticleResult.response,
+    "Information article list",
+    informationArticlePayload,
+    informationArticleResult.data,
+  );
+
+  return getFirstArticleFromList(informationArticlePayload);
+}
+
 function needsOpenAppHint(message) {
   if (!message) return false;
   const normalized = String(message).toLowerCase();
@@ -714,15 +847,20 @@ async function runDailySignTask(input) {
 
 async function runShareTask(input) {
   try {
+    const resolvedArticle = await resolveShareArticle(input);
+    const shareConfig = Object.assign({}, input.config, {
+      articleId: resolvedArticle.articleId,
+      shareContentURL: resolvedArticle.shareContentURL,
+    });
     const now = new Date();
     const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
     const timestamp = String(now.getTime());
     const openTimeStamp = formatRiskOpenTime(now);
-    const signedContext = buildSignedShareCodeContext({ config: input.config, nonce, timestamp });
-    const signature = await signBase64HmacSha256(input.config.appSecret, signedContext.signString);
+    const signedContext = buildSignedShareCodeContext({ config: shareConfig, nonce, timestamp });
+    const signature = await signBase64HmacSha256(shareConfig.appSecret, signedContext.signString);
 
     const shareCodeRequest = buildGetShareCodeRequest({
-      config: input.config,
+      config: shareConfig,
       tokenState: input.tokenState,
       nonce,
       timestamp,
@@ -735,7 +873,7 @@ async function runShareTask(input) {
     const shareCode = getShareCode(shareCodePayload);
 
     const shareReportingRequest = buildShareReportingRequest({
-      config: input.config,
+      config: shareConfig,
       shareCode,
       tokenState: input.tokenState,
     });
@@ -744,6 +882,19 @@ async function runShareTask(input) {
     assertSuccessfulHttp(shareReportingResult.response, "Share reporting", shareReportingPayload, shareReportingResult.data);
     return { ok: true };
   } catch (error) {
+    if (input.config.fallbackArticleId) {
+      try {
+        return await runShareTask(Object.assign({}, input, {
+          config: Object.assign({}, input.config, {
+            articleId: input.config.fallbackArticleId,
+            fallbackArticleId: "",
+            shareContentURL: buildShareUrl(input.config.fallbackArticleId),
+          }),
+        }));
+      } catch (fallbackError) {
+        return { ok: false, message: appendOpenAppHint(fallbackError.message) };
+      }
+    }
     return { ok: false, message: appendOpenAppHint(error.message) };
   }
 }
