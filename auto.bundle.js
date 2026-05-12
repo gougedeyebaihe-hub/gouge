@@ -140,8 +140,18 @@ function extractRequestTokenState(request) {
   return {
     token: headers.token || headers.Token || "",
     refreshToken,
-    oauthAccessToken: "",
-    oauthRefreshToken: "",
+    oauthAccessToken:
+      headers.oauthAccessToken ||
+      headers.OauthAccessToken ||
+      headers.accessToken ||
+      headers.AccessToken ||
+      "",
+    oauthRefreshToken:
+      headers.oauthRefreshToken ||
+      headers.OauthRefreshToken ||
+      headers.refreshToken ||
+      headers.RefreshToken ||
+      "",
     authorization: headers.authorization || headers.Authorization || "",
   };
 }
@@ -230,9 +240,6 @@ function shouldStartAutoRun(input) {
   if (!input.tokenState.token) return { ok: false, reason: "missing token" };
 
   const today = localDayKey(input.now);
-  const state = parseAutoRunState(input.store.read(AUTO_RUN_STATE_KEY));
-  if (state.lastRunDate === today) return { ok: false, reason: "already ran today" };
-
   const lock = parseAutoRunLock(input.store.read(AUTO_RUN_LOCK_KEY));
   if (lock.date === today && input.now.getTime() - lock.startedAt < AUTO_LOCK_TTL_MS) {
     return { ok: false, reason: "run in progress" };
@@ -461,8 +468,24 @@ function formatRiskOpenTime(date) {
   return year + "-" + month + "-" + day + " " + hours + ":" + minutes + ":" + seconds;
 }
 
+function buildAuthHeaders(tokenState) {
+  const headers = {};
+  if (!tokenState) return headers;
+
+  if (tokenState.token) headers.token = tokenState.token;
+  if (tokenState.oauthAccessToken) headers.oauthAccessToken = tokenState.oauthAccessToken;
+  if (tokenState.oauthRefreshToken) headers.oauthRefreshToken = tokenState.oauthRefreshToken;
+  if (tokenState.authorization) {
+    headers.authorization = tokenState.authorization;
+  } else if (tokenState.oauthAccessToken) {
+    headers.authorization = "Bearer " + tokenState.oauthAccessToken;
+  }
+
+  return headers;
+}
+
 function buildSignedHeaders(input) {
-  return {
+  return Object.assign({
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
     "Content-Type": "application/json",
     "X-Ca-Key": input.config.xCaKey,
@@ -472,7 +495,7 @@ function buildSignedHeaders(input) {
     "X-Ca-Signature-Method": "HmacSHA256",
     "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
     token: input.tokenState.token,
-  };
+  }, buildAuthHeaders(input.tokenState));
 }
 
 function buildRefreshTokenRequest(input) {
@@ -525,10 +548,10 @@ function buildShareReportingRequest(input) {
   return {
     method: "POST",
     url: "https://h5.lynkco.com/app/v1/task/shareReporting?shareCode=" + encodeURIComponent(input.shareCode),
-    headers: {
+    headers: Object.assign({
       "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
       "Content-Type": "application/json",
-    },
+    }, buildAuthHeaders(input.tokenState)),
     body: JSON.stringify({
       businessNo: input.config.articleId,
       eventData: {
@@ -711,7 +734,11 @@ async function runShareTask(input) {
     assertSuccessfulHttp(shareCodeResult.response, "Share code", shareCodePayload, shareCodeResult.data);
     const shareCode = getShareCode(shareCodePayload);
 
-    const shareReportingRequest = buildShareReportingRequest({ config: input.config, shareCode });
+    const shareReportingRequest = buildShareReportingRequest({
+      config: input.config,
+      shareCode,
+      tokenState: input.tokenState,
+    });
     const shareReportingResult = await requestAsync(input.httpClient, "post", shareReportingRequest);
     const shareReportingPayload = parseJson(shareReportingResult.data);
     assertSuccessfulHttp(shareReportingResult.response, "Share reporting", shareReportingPayload, shareReportingResult.data);
