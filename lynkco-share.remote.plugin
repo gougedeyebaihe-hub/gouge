@@ -1,5 +1,5 @@
 #!name=Lynk & Co Auto Tasks
-#!desc=Capture auth state and run sign/share once per day when a Lynk & Co token is detected
+#!desc=Capture auth state and run sign/share when a Lynk & Co token is detected | Version v20260512c
 #!author=OpenAI Codex
 #!homepage=https://nsloon.app/docs/
 
