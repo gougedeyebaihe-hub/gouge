@@ -47,7 +47,7 @@ Current script cache version:
 当前脚本缓存版本：
 
 ```text
-auto.bundle.js?v=20260716d
+auto.bundle.js?v=20260716e
 ```
 
 ## Repository Contents / 仓库内容
@@ -155,13 +155,13 @@ Loon 中必须对这些域名开启并信任 MITM。
 ## Daily Use / 日常使用
 
 1. Update the remote plugin in Loon.
-2. Confirm the script URL contains `v=20260716d`.
+2. Confirm the script URL contains `v=20260716e`.
 3. Confirm MITM is enabled.
 4. Open Lynk & Co once during the day.
 5. Wait for `Sign: ok | Share: ok`.
 
 1. 在 Loon 中更新远程插件。
-2. 确认脚本 URL 包含 `v=20260716d`。
+2. 确认脚本 URL 包含 `v=20260716e`。
 3. 确认 MITM 已启用。
 4. 当天打开一次领克 App。
 5. 等待 `Sign: ok | Share: ok`。
@@ -186,12 +186,12 @@ If nothing happens:
 
 如果没有任何反应：
 
-1. Make sure the plugin is updated to `v=20260716d`.
+1. Make sure the plugin is updated to `v=20260716e`.
 2. Make sure MITM is enabled for `h5-api.lynkco.com` and `h5.lynkco.com`.
 3. Temporarily set `pingNotify=1` to confirm whether the script is being hit.
 4. Temporarily set `debugNotify=1` to confirm whether token state is captured.
 
-1. 确认插件已更新到 `v=20260716d`。
+1. 确认插件已更新到 `v=20260716e`。
 2. 确认 `h5-api.lynkco.com` 和 `h5.lynkco.com` 已开启 MITM。
 3. 临时把 `pingNotify=1`，确认脚本是否命中。
 4. 临时把 `debugNotify=1`，确认是否抓到 token 状态。
