@@ -42,6 +42,7 @@ function buildShareConfig(input) {
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
     pingNotify: truthyFlag(source.pingNotify, false),
     debugNotify: truthyFlag(source.debugNotify, false),
+    captureTraceNotify: truthyFlag(source.captureTraceNotify, false),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
   };
@@ -186,6 +187,24 @@ function summarizeCapturedFields(tokenState) {
     tokenState.oauthRefreshToken ? "oauthRefreshToken" : "",
     tokenState.authorization ? "authorization" : "",
   ].filter(Boolean);
+}
+
+function shouldTraceRequest(url) {
+  if (!url) return false;
+  const normalized = String(url).toLowerCase();
+  return [
+    "/app/energy/",
+    "/app/v1/task/",
+    "/up/api/v1/user/sign",
+    "/signin",
+    "/checkin",
+  ].some((marker) => normalized.includes(marker));
+}
+
+function buildTraceSummary(method, url) {
+  if (!url) return "";
+  const compactUrl = String(url).replace(/^https?:\/\/[^/]+/i, "");
+  return String(method || "GET").toUpperCase() + " " + compactUrl;
 }
 
 function localDayKey(date) {
@@ -957,6 +976,17 @@ async function runAutoCapture(options = {}) {
     if (!request && !response) {
       done();
       return;
+    }
+
+    if (config.captureTraceNotify) {
+      const tracedUrl = (request && request.url) || "";
+      if (shouldTraceRequest(tracedUrl)) {
+        notification.post(
+          "Lynk & Co Trace",
+          "",
+          buildTraceSummary((request && request.method) || "GET", tracedUrl),
+        );
+      }
     }
 
     if (config.pingNotify) {
