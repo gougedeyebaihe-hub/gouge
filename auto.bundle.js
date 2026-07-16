@@ -190,15 +190,7 @@ function summarizeCapturedFields(tokenState) {
 }
 
 function shouldTraceRequest(url) {
-  if (!url) return false;
-  const normalized = String(url).toLowerCase();
-  return [
-    "/app/energy/",
-    "/app/v1/task/",
-    "/up/api/v1/user/sign",
-    "/signin",
-    "/checkin",
-  ].some((marker) => normalized.includes(marker));
+  return Boolean(url);
 }
 
 function buildTraceSummary(method, url) {
