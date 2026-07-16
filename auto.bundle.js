@@ -42,7 +42,7 @@ function buildShareConfig(input) {
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
     pingNotify: truthyFlag(source.pingNotify, false),
     debugNotify: truthyFlag(source.debugNotify, false),
-    captureTraceNotify: truthyFlag(source.captureTraceNotify, false),
+    captureTraceNotify: truthyFlag(source.captureTraceNotify, true),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
   };
@@ -979,7 +979,7 @@ async function runAutoCapture(options = {}) {
     }
 
     if (config.captureTraceNotify) {
-      const tracedUrl = (request && request.url) || "";
+      const tracedUrl = (request && request.url) || (response && response.url) || "";
       if (shouldTraceRequest(tracedUrl)) {
         notification.post(
           "Lynk & Co Trace",
