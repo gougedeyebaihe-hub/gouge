@@ -193,6 +193,39 @@ function shouldTraceRequest(url) {
   return Boolean(url);
 }
 
+function classifyTraceUrl(method, url) {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  const normalizedUrl = String(url || "").toLowerCase();
+  const usefulMarkers = [
+    "/up/api/v1/user/sign/sign/info",
+    "/up/api/v1/userreward/gettasklist",
+    "/up/api/v1/userreward/getcontinuedaysandsigncard",
+    "/up/api/v1/usersigntip/gettipconfig",
+    "/app/v1/task/",
+    "/app/energy/",
+    "/reporting?type=",
+  ];
+  const maybeMarkers = [
+    "/auth/user/info",
+    "/auth/login/refresh",
+    "/partnermanager/",
+    "/privilege",
+    "/reward",
+    "/sign",
+    "/task",
+    "/energy",
+    "/point",
+  ];
+
+  if (usefulMarkers.some((marker) => normalizedUrl.includes(marker))) {
+    return normalizedMethod === "OPTIONS" ? "maybe" : "useful";
+  }
+  if (maybeMarkers.some((marker) => normalizedUrl.includes(marker))) {
+    return "maybe";
+  }
+  return "noise";
+}
+
 function buildTraceSummary(method, url) {
   if (!url) return "";
   const compactUrl = String(url).replace(/^https?:\/\/[^/]+/i, "");
@@ -969,11 +1002,14 @@ async function runAutoCapture(options = {}) {
 
     if (config.captureTraceNotify) {
       const tracedUrl = (request && request.url) || (response && response.url) || "";
+      const traceMethod =
+        (request && request.method) ||
+        ((response && response.statusCode) || response ? "RESPONSE" : "GET");
       if (shouldTraceRequest(tracedUrl)) {
         notification.post(
-          "Lynk & Co Trace",
+          "Lynk & Co Trace [" + classifyTraceUrl(traceMethod, tracedUrl) + "]",
           "",
-          buildTraceSummary((request && request.method) || "GET", tracedUrl),
+          buildTraceSummary(traceMethod, tracedUrl),
         );
       }
     }
