@@ -527,7 +527,7 @@ function buildRefreshTokenRequest(input) {
 function buildDailySignRequest(input) {
   return {
     method: "POST",
-    url: "https://h5-api.lynkco.com/up/api/v1/user/sign/sign/info",
+    url: "https://app-api-gw-toc.lynkco.com/up/api/v1/user/sign/sign/info",
     headers: buildSignedHeaders(input),
   };
 }
