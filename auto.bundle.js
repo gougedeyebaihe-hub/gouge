@@ -47,6 +47,8 @@ function buildShareConfig(input) {
     debugNotify: truthyFlag(source.debugNotify, false),
     captureTraceNotify: truthyFlag(source.captureTraceNotify, false),
     signTraceNotify: truthyFlag(source.signTraceNotify, true),
+    signRequestNotify: truthyFlag(source.signRequestNotify, false),
+    signCandidateNotify: truthyFlag(source.signCandidateNotify, true),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
   };
@@ -173,6 +175,21 @@ function summarizeSignRequestHeaders(request) {
 
 function isSignInfoUrl(url) {
   return String(url || "").toLowerCase().includes("/up/api/v1/user/sign/sign/info");
+}
+
+function isSignCandidateUrl(method, url) {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  const normalizedUrl = String(url || "").toLowerCase();
+  if (normalizedMethod === "GET" || normalizedMethod === "OPTIONS") return false;
+  if (isSignInfoUrl(normalizedUrl)) return false;
+  if (!normalizedUrl.includes("sign") && !normalizedUrl.includes("reward") && !normalizedUrl.includes("task")) {
+    return false;
+  }
+  return (
+    normalizedUrl.includes("/up/api/") ||
+    normalizedUrl.includes("/app/v1/task/") ||
+    normalizedUrl.includes("/app/energy/")
+  );
 }
 
 function extractRequestTokenState(request) {
@@ -1287,7 +1304,7 @@ async function runAutoCapture(options = {}) {
     }
 
     if (config.signTraceNotify) {
-      if (request && isSignInfoUrl(tracedUrl)) {
+      if (config.signRequestNotify && request && isSignInfoUrl(tracedUrl)) {
         notification.post(
           "Lynk & Co Sign Request",
           "",
@@ -1302,6 +1319,14 @@ async function runAutoCapture(options = {}) {
           summarizeSignPayload(signTracePayload, response.body, localDayKey(new Date())) || "empty response",
         );
       }
+    }
+
+    if (config.signCandidateNotify && request && isSignCandidateUrl(traceMethod, tracedUrl)) {
+      notification.post(
+        "Lynk & Co Sign Candidate",
+        "",
+        buildTraceSummary(traceMethod, tracedUrl),
+      );
     }
 
     if (config.pingNotify) {
