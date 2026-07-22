@@ -5,8 +5,6 @@ const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const SIGN_ENDPOINTS = [
-  { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
-  { host: "h5-api.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
   { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign/sign/info", mode: "info" },
 ];
 
@@ -150,6 +148,32 @@ function getHeader(headers, names) {
   return "";
 }
 
+function maskValue(value) {
+  const text = String(value || "");
+  if (!text) return "";
+  if (text.length <= 8) return text.slice(0, 2) + "***";
+  return text.slice(0, 4) + "..." + text.slice(-4);
+}
+
+function summarizeSignRequestHeaders(request) {
+  const headers = (request && request.headers) || {};
+  const parts = [
+    "xCaKey=" + (getHeader(headers, ["X-Ca-Key"]) || "missing"),
+    "sig=" + maskValue(getHeader(headers, ["X-Ca-Signature"])),
+    "sigHeaders=" + (getHeader(headers, ["X-Ca-Signature-Headers"]) || "missing"),
+    "timestamp=" + maskValue(getHeader(headers, ["X-Ca-Timestamp"])),
+    "nonce=" + maskValue(getHeader(headers, ["X-Ca-Nonce"])),
+    "token=" + (getHeader(headers, ["token"]) ? "yes" : "no"),
+    "oauth=" + (getHeader(headers, ["oauthAccessToken", "oauth-access-token", "accessToken", "access-token"]) ? "yes" : "no"),
+    "auth=" + (getHeader(headers, ["authorization"]) ? "yes" : "no"),
+  ];
+  return parts.join(", ");
+}
+
+function isSignInfoUrl(url) {
+  return String(url || "").toLowerCase().includes("/up/api/v1/user/sign/sign/info");
+}
+
 function extractRequestTokenState(request) {
   if (!request || !request.url) return emptyTokenState();
   const headers = request.headers || {};
@@ -207,7 +231,6 @@ function classifyTraceUrl(method, url) {
   const normalizedMethod = String(method || "GET").toUpperCase();
   const normalizedUrl = String(url || "").toLowerCase();
   const usefulMarkers = [
-    "/up/api/v1/user/sign",
     "/up/api/v1/user/sign/sign/info",
     "/up/api/v1/userreward/gettasklist",
     "/up/api/v1/userreward/getcontinuedaysandsigncard",
@@ -1024,6 +1047,11 @@ function summarizeResults(signResult, shareResult, shareEnabled) {
   return summarizeTask("Sign", signResult) + " | " + summarizeTask("Share", shareResult);
 }
 
+function summarizeFailures(failures) {
+  const summary = failures.join(" | ") || "no sign endpoint succeeded";
+  return summary.length > 260 ? summary.slice(0, 257) + "..." : summary;
+}
+
 async function runDailySignTask(input) {
   const failures = [];
 
@@ -1076,7 +1104,7 @@ async function runDailySignTask(input) {
 
   return {
     ok: false,
-    message: appendOpenAppHint(failures.join(" | ") || "no sign endpoint succeeded"),
+    message: appendOpenAppHint(summarizeFailures(failures)),
   };
 }
 
@@ -1203,11 +1231,14 @@ async function runAutoCapture(options = {}) {
           buildTraceSummary(traceMethod, tracedUrl),
         );
       }
-      if (
-        response &&
-        response.body &&
-        String(tracedUrl).toLowerCase().includes("/up/api/v1/user/sign/sign/info")
-      ) {
+      if (request && isSignInfoUrl(tracedUrl)) {
+        notification.post(
+          "Lynk & Co Sign Request",
+          "",
+          summarizeSignRequestHeaders(request),
+        );
+      }
+      if (response && response.body && isSignInfoUrl(tracedUrl)) {
         const signTracePayload = parseJson(response.body);
         notification.post(
           "Lynk & Co Sign Trace",
