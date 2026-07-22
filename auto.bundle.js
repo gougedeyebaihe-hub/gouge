@@ -5,6 +5,7 @@ const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const SIGN_ENDPOINTS = [
+  { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign/upgrade", mode: "action" },
   { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign/sign/info", mode: "info" },
 ];
 
@@ -48,7 +49,7 @@ function buildShareConfig(input) {
     captureTraceNotify: truthyFlag(source.captureTraceNotify, false),
     signTraceNotify: truthyFlag(source.signTraceNotify, true),
     signRequestNotify: truthyFlag(source.signRequestNotify, false),
-    signCandidateNotify: truthyFlag(source.signCandidateNotify, true),
+    signCandidateNotify: truthyFlag(source.signCandidateNotify, false),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
   };
@@ -1145,6 +1146,7 @@ function summarizeFailures(failures) {
 }
 
 async function runDailySignTask(input) {
+  let actionSucceeded = false;
   const failures = [];
 
   for (const endpoint of SIGN_ENDPOINTS) {
@@ -1177,7 +1179,8 @@ async function runDailySignTask(input) {
       assertSuccessfulHttp(signResult.response, "Sign", signPayload, signResult.data);
 
       if (endpoint.mode === "action") {
-        return { ok: true };
+        actionSucceeded = true;
+        continue;
       }
 
       const signNow = new Date();
@@ -1188,7 +1191,10 @@ async function runDailySignTask(input) {
         return { ok: true };
       }
       if (signState === "unsigned") {
-        throw new Error("sign info reports not signed" + (responseSummary ? ": " + responseSummary : "."));
+        throw new Error(
+          (actionSucceeded ? "sign action ran, but " : "") +
+          "sign info reports not signed" + (responseSummary ? ": " + responseSummary : "."),
+        );
       }
       throw new Error("sign info did not confirm completion" + (responseSummary ? ": " + responseSummary : "."));
     } catch (error) {
