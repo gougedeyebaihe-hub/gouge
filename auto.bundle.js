@@ -45,7 +45,8 @@ function buildShareConfig(input) {
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
     pingNotify: truthyFlag(source.pingNotify, false),
     debugNotify: truthyFlag(source.debugNotify, false),
-    captureTraceNotify: truthyFlag(source.captureTraceNotify, true),
+    captureTraceNotify: truthyFlag(source.captureTraceNotify, false),
+    signTraceNotify: truthyFlag(source.signTraceNotify, true),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
   };
@@ -752,8 +753,17 @@ function primitiveToText(value) {
   return "";
 }
 
-function collectInterestingFields(value, path, output) {
+function getTodaySignEntry(payload, dateKey) {
+  const data = payload && payload.data;
+  if (!data || typeof data !== "object") return null;
+  return data[dateKey] || data[dateKey.replace(/-/g, "/")] || data[dateKey.replace(/-/g, "")] || null;
+}
+
+function collectInterestingFields(value, path, output, options = {}) {
   if (!value || output.length >= 16) return;
+  const todayOnly = options.todayOnly;
+  const todayKey = options.todayKey || "";
+
   if (typeof value !== "object") {
     const normalizedPath = String(path || "").toLowerCase();
     if (
@@ -776,14 +786,41 @@ function collectInterestingFields(value, path, output) {
 
   Object.keys(value).forEach((key) => {
     if (output.length >= 16) return;
-    collectInterestingFields(value[key], path ? path + "." + key : key, output);
+    if (todayOnly && /^\d{4}-\d{2}-\d{2}$/.test(key) && key !== todayKey) return;
+    collectInterestingFields(value[key], path ? path + "." + key : key, output, options);
   });
 }
 
-function summarizeSignPayload(payload, data) {
+function summarizeSignPayload(payload, data, dateKey) {
+  const parts = [];
+  if (payload && payload.code != null) parts.push("code=" + payload.code);
+  const apiMessage = getApiMessage(payload);
+  if (apiMessage) parts.push("message=" + apiMessage);
+
+  const dataObject = payload && payload.data;
+  const dateKeys = dataObject && typeof dataObject === "object"
+    ? Object.keys(dataObject).filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key)).sort()
+    : [];
+  if (dateKeys.length && dateKey) {
+    const todayEntry = getTodaySignEntry(payload, dateKey);
+    const todayFields = [];
+    if (todayEntry && typeof todayEntry === "object") {
+      collectInterestingFields(todayEntry, "", todayFields);
+    }
+    parts.push("today=" + dateKey + ":" + (todayFields.join(", ") || "missing"));
+
+    const latestKey = dateKeys[dateKeys.length - 1];
+    if (latestKey !== dateKey) {
+      const latestFields = [];
+      collectInterestingFields(dataObject[latestKey], "", latestFields);
+      parts.push("latest=" + latestKey + ":" + (latestFields.join(", ") || "unknown"));
+    }
+    return parts.join(", ");
+  }
+
   const fields = [];
-  collectInterestingFields(payload, "", fields);
-  const summary = fields.join(", ") || summarizeBody(data);
+  collectInterestingFields(payload, "", fields, { todayOnly: Boolean(dateKey), todayKey: dateKey });
+  const summary = parts.concat(fields).join(", ") || summarizeBody(data);
   return summary.length > 220 ? summary.slice(0, 217) + "..." : summary;
 }
 
@@ -871,6 +908,19 @@ function findSignCompletionState(value, path = "") {
     if (state) return state;
   }
   return "";
+}
+
+function getTodaySignState(payload, now) {
+  const todayKey = localDayKey(now || new Date());
+  const data = payload && payload.data;
+  if (data && typeof data === "object") {
+    const dateKeys = Object.keys(data).filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key));
+    if (dateKeys.length) {
+      const todayEntry = getTodaySignEntry(payload, todayKey);
+      return todayEntry ? findSignCompletionState(todayEntry, todayKey) || "unsigned" : "unsigned";
+    }
+  }
+  return findSignCompletionState(payload);
 }
 
 function summarizeBody(data) {
@@ -1088,8 +1138,10 @@ async function runDailySignTask(input) {
         return { ok: true };
       }
 
-      const signState = findSignCompletionState(signPayload);
-      const responseSummary = summarizeSignPayload(signPayload, signResult.data);
+      const signNow = new Date();
+      const signDateKey = localDayKey(signNow);
+      const signState = getTodaySignState(signPayload, signNow);
+      const responseSummary = summarizeSignPayload(signPayload, signResult.data, signDateKey);
       if (signState === "signed") {
         return { ok: true };
       }
@@ -1219,11 +1271,12 @@ async function runAutoCapture(options = {}) {
       return;
     }
 
+    const tracedUrl = (request && request.url) || (response && response.url) || "";
+    const traceMethod =
+      (request && request.method) ||
+      ((response && response.statusCode) || response ? "RESPONSE" : "GET");
+
     if (config.captureTraceNotify) {
-      const tracedUrl = (request && request.url) || (response && response.url) || "";
-      const traceMethod =
-        (request && request.method) ||
-        ((response && response.statusCode) || response ? "RESPONSE" : "GET");
       if (shouldTraceRequest(tracedUrl)) {
         notification.post(
           "Lynk & Co Trace [" + classifyTraceUrl(traceMethod, tracedUrl) + "]",
@@ -1231,6 +1284,9 @@ async function runAutoCapture(options = {}) {
           buildTraceSummary(traceMethod, tracedUrl),
         );
       }
+    }
+
+    if (config.signTraceNotify) {
       if (request && isSignInfoUrl(tracedUrl)) {
         notification.post(
           "Lynk & Co Sign Request",
@@ -1243,7 +1299,7 @@ async function runAutoCapture(options = {}) {
         notification.post(
           "Lynk & Co Sign Trace",
           "",
-          summarizeSignPayload(signTracePayload, response.body) || "empty response",
+          summarizeSignPayload(signTracePayload, response.body, localDayKey(new Date())) || "empty response",
         );
       }
     }
@@ -1261,7 +1317,7 @@ async function runAutoCapture(options = {}) {
     const currentMethod =
       (request && request.method) ||
       ((response && response.statusCode) || response ? "RESPONSE" : "GET");
-    const triggeredByUsefulRequest = classifyTraceUrl(currentMethod, currentUrl) === "useful";
+    const triggeredByUsefulRequest = isSignInfoUrl(currentUrl);
     const capturedTokenState = mergeTokenState(
       mergeTokenState(extractRequestTokenState(request), extractBodyTokenState(request && request.body)),
       extractBodyTokenState(response && response.body),
