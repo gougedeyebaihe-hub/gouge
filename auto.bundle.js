@@ -182,12 +182,11 @@ function isSignCandidateUrl(method, url) {
   const normalizedUrl = String(url || "").toLowerCase();
   if (normalizedMethod === "GET" || normalizedMethod === "OPTIONS") return false;
   if (isSignInfoUrl(normalizedUrl)) return false;
-  if (!normalizedUrl.includes("sign") && !normalizedUrl.includes("reward") && !normalizedUrl.includes("task")) {
-    return false;
-  }
+  if (normalizedUrl.includes("/app/v1/task/getsharecode")) return false;
+  if (normalizedUrl.includes("/app/v1/task/sharereporting")) return false;
   return (
     normalizedUrl.includes("/up/api/") ||
-    normalizedUrl.includes("/app/v1/task/") ||
+    normalizedUrl.includes("/app/v1/") ||
     normalizedUrl.includes("/app/energy/")
   );
 }
@@ -773,7 +772,33 @@ function primitiveToText(value) {
 function getTodaySignEntry(payload, dateKey) {
   const data = payload && payload.data;
   if (!data || typeof data !== "object") return null;
-  return data[dateKey] || data[dateKey.replace(/-/g, "/")] || data[dateKey.replace(/-/g, "")] || null;
+  const target = normalizeDateKey(dateKey);
+  const keys = Object.keys(data);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    if (normalizeDateKey(key) === target) return data[key];
+  }
+  return null;
+}
+
+function normalizeDateKey(value) {
+  const match = String(value || "").match(/^(\d{4})[-/年]?(\d{1,2})[-/月]?(\d{1,2})/);
+  if (!match) return "";
+  return match[1] + "-" + match[2].padStart(2, "0") + "-" + match[3].padStart(2, "0");
+}
+
+function isDateLikeKey(key) {
+  return Boolean(normalizeDateKey(key));
+}
+
+function summarizeObjectBrief(value) {
+  if (value == null) return "missing";
+  if (typeof value !== "object") return primitiveToText(value) || String(value);
+  const fields = [];
+  collectInterestingFields(value, "", fields);
+  if (fields.length) return fields.join(",");
+  const raw = JSON.stringify(value);
+  return raw.length > 80 ? raw.slice(0, 77) + "..." : raw;
 }
 
 function collectInterestingFields(value, path, output, options = {}) {
@@ -803,7 +828,7 @@ function collectInterestingFields(value, path, output, options = {}) {
 
   Object.keys(value).forEach((key) => {
     if (output.length >= 16) return;
-    if (todayOnly && /^\d{4}-\d{2}-\d{2}$/.test(key) && key !== todayKey) return;
+    if (todayOnly && isDateLikeKey(key) && normalizeDateKey(key) !== normalizeDateKey(todayKey)) return;
     collectInterestingFields(value[key], path ? path + "." + key : key, output, options);
   });
 }
@@ -816,7 +841,9 @@ function summarizeSignPayload(payload, data, dateKey) {
 
   const dataObject = payload && payload.data;
   const dateKeys = dataObject && typeof dataObject === "object"
-    ? Object.keys(dataObject).filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key)).sort()
+    ? Object.keys(dataObject).filter(isDateLikeKey).sort((left, right) => {
+      return normalizeDateKey(left) < normalizeDateKey(right) ? -1 : 1;
+    })
     : [];
   if (dateKeys.length && dateKey) {
     const todayEntry = getTodaySignEntry(payload, dateKey);
@@ -827,10 +854,8 @@ function summarizeSignPayload(payload, data, dateKey) {
     parts.push("today=" + dateKey + ":" + (todayFields.join(", ") || "missing"));
 
     const latestKey = dateKeys[dateKeys.length - 1];
-    if (latestKey !== dateKey) {
-      const latestFields = [];
-      collectInterestingFields(dataObject[latestKey], "", latestFields);
-      parts.push("latest=" + latestKey + ":" + (latestFields.join(", ") || "unknown"));
+    if (normalizeDateKey(latestKey) !== normalizeDateKey(dateKey)) {
+      parts.push("latest=" + normalizeDateKey(latestKey) + ":" + summarizeObjectBrief(dataObject[latestKey]));
     }
     return parts.join(", ");
   }
@@ -931,7 +956,7 @@ function getTodaySignState(payload, now) {
   const todayKey = localDayKey(now || new Date());
   const data = payload && payload.data;
   if (data && typeof data === "object") {
-    const dateKeys = Object.keys(data).filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key));
+    const dateKeys = Object.keys(data).filter(isDateLikeKey);
     if (dateKeys.length) {
       const todayEntry = getTodaySignEntry(payload, todayKey);
       return todayEntry ? findSignCompletionState(todayEntry, todayKey) || "unsigned" : "unsigned";
