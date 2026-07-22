@@ -47,7 +47,7 @@ function buildShareConfig(input) {
     pingNotify: truthyFlag(source.pingNotify, false),
     debugNotify: truthyFlag(source.debugNotify, false),
     captureTraceNotify: truthyFlag(source.captureTraceNotify, false),
-    signTraceNotify: truthyFlag(source.signTraceNotify, true),
+    signTraceNotify: truthyFlag(source.signTraceNotify, false),
     signRequestNotify: truthyFlag(source.signRequestNotify, false),
     signCandidateNotify: truthyFlag(source.signCandidateNotify, false),
     xCaKey: source.xCaKey || "204644386",
@@ -1360,17 +1360,17 @@ async function runAutoCapture(options = {}) {
       }
     }
 
-    if (config.signTraceNotify) {
-      if (config.signRequestNotify && request && isSignInfoUrl(tracedUrl)) {
-        notification.post(
-          "Lynk & Co Sign Request",
-          "",
-          summarizeSignRequestHeaders(request),
-        );
-      }
-      if (response && response.body && isSignInfoUrl(tracedUrl)) {
-        const signTracePayload = parseJson(response.body);
-        writeStoredSignInfo(store, signTracePayload);
+    if (config.signRequestNotify && request && isSignInfoUrl(tracedUrl)) {
+      notification.post(
+        "Lynk & Co Sign Request",
+        "",
+        summarizeSignRequestHeaders(request),
+      );
+    }
+    if (response && response.body && isSignInfoUrl(tracedUrl)) {
+      const signTracePayload = parseJson(response.body);
+      writeStoredSignInfo(store, signTracePayload);
+      if (config.signTraceNotify) {
         notification.post(
           "Lynk & Co Sign Trace",
           "",
