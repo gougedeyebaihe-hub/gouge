@@ -130,6 +130,21 @@ function extractBodyTokenState(body) {
   return findTokenState(parseJson(body));
 }
 
+function normalizeHeaderName(name) {
+  return String(name || "").toLowerCase().replace(/[-_]/g, "");
+}
+
+function getHeader(headers, names) {
+  if (!headers) return "";
+  const normalizedNames = names.map(normalizeHeaderName);
+  const keys = Object.keys(headers);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    if (normalizedNames.includes(normalizeHeaderName(key))) return headers[key] || "";
+  }
+  return "";
+}
+
 function extractRequestTokenState(request) {
   if (!request || !request.url) return emptyTokenState();
   const headers = request.headers || {};
@@ -141,21 +156,11 @@ function extractRequestTokenState(request) {
   }
 
   return {
-    token: headers.token || headers.Token || "",
+    token: getHeader(headers, ["token"]),
     refreshToken,
-    oauthAccessToken:
-      headers.oauthAccessToken ||
-      headers.OauthAccessToken ||
-      headers.accessToken ||
-      headers.AccessToken ||
-      "",
-    oauthRefreshToken:
-      headers.oauthRefreshToken ||
-      headers.OauthRefreshToken ||
-      headers.refreshToken ||
-      headers.RefreshToken ||
-      "",
-    authorization: headers.authorization || headers.Authorization || "",
+    oauthAccessToken: getHeader(headers, ["oauthAccessToken", "oauth-access-token", "accessToken", "access-token"]),
+    oauthRefreshToken: getHeader(headers, ["oauthRefreshToken", "oauth-refresh-token", "refreshToken", "refresh-token"]),
+    authorization: getHeader(headers, ["authorization"]),
   };
 }
 
@@ -282,7 +287,9 @@ function parseAutoRunLock(raw) {
 
 function shouldStartAutoRun(input) {
   if (!input.config.autoRunOnCapture) return { ok: false, reason: "disabled" };
-  if (!input.detectedTokenNow) return { ok: false, reason: "no token detected in this script run" };
+  if (!input.detectedTokenNow && !input.triggeredByUsefulRequest) {
+    return { ok: false, reason: "no token detected in this script run" };
+  }
   if (!input.tokenState.token) return { ok: false, reason: "missing token" };
 
   const today = localDayKey(input.now);
@@ -347,6 +354,22 @@ function buildSignString(input) {
 }
 
 function bytesToBase64(bytes) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  if (typeof btoa === "undefined") {
+    let output = "";
+    for (let index = 0; index < bytes.length; index += 3) {
+      const first = bytes[index];
+      const second = index + 1 < bytes.length ? bytes[index + 1] : 0;
+      const third = index + 2 < bytes.length ? bytes[index + 2] : 0;
+      const chunk = (first << 16) | (second << 8) | third;
+      output += alphabet[(chunk >> 18) & 63];
+      output += alphabet[(chunk >> 12) & 63];
+      output += index + 1 < bytes.length ? alphabet[(chunk >> 6) & 63] : "=";
+      output += index + 2 < bytes.length ? alphabet[chunk & 63] : "=";
+    }
+    return output;
+  }
+
   let binary = "";
   for (let index = 0; index < bytes.length; index += 1) {
     binary += String.fromCharCode(bytes[index]);
@@ -1023,6 +1046,11 @@ async function runAutoCapture(options = {}) {
     }
 
     const previousTokenState = parseTokenState(store.read(TOKEN_STATE_KEY));
+    const currentUrl = (request && request.url) || (response && response.url) || "";
+    const currentMethod =
+      (request && request.method) ||
+      ((response && response.statusCode) || response ? "RESPONSE" : "GET");
+    const triggeredByUsefulRequest = classifyTraceUrl(currentMethod, currentUrl) === "useful";
     const capturedTokenState = mergeTokenState(
       mergeTokenState(extractRequestTokenState(request), extractBodyTokenState(request && request.body)),
       extractBodyTokenState(response && response.body),
@@ -1050,11 +1078,12 @@ async function runAutoCapture(options = {}) {
       now,
       store,
       tokenState,
+      triggeredByUsefulRequest,
     });
 
     if (!gate.ok) {
-      if (detectedTokenNow && config.debugNotify) {
-        notification.post("Lynk & Co Share", "", "Captured token, skipped auto run: " + gate.reason + ".");
+      if ((detectedTokenNow || triggeredByUsefulRequest) && config.debugNotify) {
+        notification.post("Lynk & Co Share", "", "Auto run skipped: " + gate.reason + ".");
       }
       done({});
       return;
