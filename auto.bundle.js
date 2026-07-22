@@ -1,5 +1,6 @@
 const TOKEN_STATE_KEY = "lynkco.share.tokenState";
 const LAST_SIGN_INFO_KEY = "lynkco.share.lastSignInfo";
+const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
@@ -50,6 +51,7 @@ function buildShareConfig(input) {
     signTraceNotify: truthyFlag(source.signTraceNotify, false),
     signRequestNotify: truthyFlag(source.signRequestNotify, false),
     signCandidateNotify: truthyFlag(source.signCandidateNotify, false),
+    signUpgradeNotify: truthyFlag(source.signUpgradeNotify, true),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
   };
@@ -192,8 +194,90 @@ function summarizeSignRequestHeaders(request) {
   return parts.join(", ");
 }
 
+function compactContentType(value) {
+  return String(value || "missing").split(";")[0];
+}
+
+function requestBodyLength(request) {
+  const body = request && request.body;
+  if (!body) return 0;
+  if (typeof body === "string") return body.length;
+  try {
+    return JSON.stringify(body).length;
+  } catch (error) {
+    return -1;
+  }
+}
+
+function listUsefulHeaderNames(headers) {
+  return Object.keys(headers || {}).filter((name) => {
+    const normalized = normalizeHeaderName(name);
+    if (
+      normalized.includes("authorization") ||
+      normalized.includes("cookie") ||
+      normalized.includes("nonce") ||
+      normalized.includes("signature") ||
+      normalized.includes("token")
+    ) {
+      return false;
+    }
+    return [
+      "accept",
+      "app",
+      "brand",
+      "ca",
+      "channel",
+      "client",
+      "consumer",
+      "contenttype",
+      "device",
+      "platform",
+      "security",
+      "tenant",
+      "useragent",
+      "version",
+    ].some((marker) => normalized.includes(marker));
+  }).slice(0, 14);
+}
+
+function summarizeSignUpgradeRequest(request) {
+  const headers = (request && request.headers) || {};
+  const headerNames = listUsefulHeaderNames(headers);
+  return [
+    buildTraceSummary(request && request.method, request && request.url),
+    summarizeSignRequestHeaders(request),
+    "ct=" + compactContentType(getHeader(headers, ["Content-Type"])),
+    "ua=" + (getHeader(headers, ["User-Agent"]) ? "yes" : "no"),
+    "bodyLen=" + requestBodyLength(request),
+    "headers=" + (headerNames.length ? headerNames.join("|") : "none"),
+  ].join(" | ");
+}
+
+function writeStoredSignUpgradeRequest(store, request) {
+  if (!store || !request) return;
+  const headers = request.headers || {};
+  const captured = {
+    capturedAt: new Date().toISOString(),
+    method: request.method || "",
+    path: buildTraceSummary(request.method, request.url),
+    xCaKey: getHeader(headers, ["X-Ca-Key"]) || "",
+    signatureHeaders: getHeader(headers, ["X-Ca-Signature-Headers"]) || "",
+    contentType: compactContentType(getHeader(headers, ["Content-Type"])),
+    hasToken: Boolean(getHeader(headers, ["token"])),
+    hasOAuth: Boolean(getHeader(headers, ["oauthAccessToken", "oauth-access-token", "accessToken", "access-token"])),
+    hasAuthorization: Boolean(getHeader(headers, ["authorization"])),
+    bodyLength: requestBodyLength(request),
+    headerNames: listUsefulHeaderNames(headers),
+  };
+  store.write(JSON.stringify(captured), SIGN_UPGRADE_REQUEST_KEY);
+}
+
 function isSignInfoUrl(url) {
   return String(url || "").toLowerCase().includes("/up/api/v1/user/sign/sign/info");
+}
+
+function isSignUpgradeUrl(url) {
+  return String(url || "").toLowerCase().includes("/up/api/v1/user/sign/upgrade");
 }
 
 function isSignCandidateUrl(method, url) {
@@ -201,6 +285,7 @@ function isSignCandidateUrl(method, url) {
   const normalizedUrl = String(url || "").toLowerCase();
   if (normalizedMethod === "GET" || normalizedMethod === "OPTIONS") return false;
   if (isSignInfoUrl(normalizedUrl)) return false;
+  if (isSignUpgradeUrl(normalizedUrl)) return false;
   if (normalizedUrl.includes("/app/v1/task/getsharecode")) return false;
   if (normalizedUrl.includes("/app/v1/task/sharereporting")) return false;
   return (
@@ -1366,6 +1451,16 @@ async function runAutoCapture(options = {}) {
         "",
         summarizeSignRequestHeaders(request),
       );
+    }
+    if (request && isSignUpgradeUrl(tracedUrl)) {
+      writeStoredSignUpgradeRequest(store, request);
+      if (config.signUpgradeNotify) {
+        notification.post(
+          "Lynk & Co Sign Upgrade",
+          "",
+          summarizeSignUpgradeRequest(request),
+        );
+      }
     }
     if (response && response.body && isSignInfoUrl(tracedUrl)) {
       const signTracePayload = parseJson(response.body);
