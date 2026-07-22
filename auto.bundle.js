@@ -4,6 +4,11 @@ const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
+const SIGN_ENDPOINTS = [
+  { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
+  { host: "h5-api.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
+  { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign/sign/info", mode: "info" },
+];
 
 function parseArgumentString(argument) {
   if (!argument) return {};
@@ -202,6 +207,7 @@ function classifyTraceUrl(method, url) {
   const normalizedMethod = String(method || "GET").toUpperCase();
   const normalizedUrl = String(url || "").toLowerCase();
   const usefulMarkers = [
+    "/up/api/v1/user/sign",
     "/up/api/v1/user/sign/sign/info",
     "/up/api/v1/userreward/gettasklist",
     "/up/api/v1/userreward/getcontinuedaysandsigncard",
@@ -583,7 +589,7 @@ function buildRefreshTokenRequest(input) {
 function buildDailySignRequest(input) {
   return {
     method: "POST",
-    url: "https://app-api-gw-toc.lynkco.com/up/api/v1/user/sign/sign/info",
+    url: "https://" + input.endpoint.host + input.endpoint.uri,
     headers: buildSignedHeaders(input),
   };
 }
@@ -649,7 +655,7 @@ function buildSignedGetRequest(input) {
 }
 
 function buildSignedDailySignContext(input) {
-  const uri = "/up/api/v1/user/sign/sign/info";
+  const uri = input.endpoint.uri;
   return {
     signString: buildSignString({
       method: "POST",
@@ -714,6 +720,134 @@ function requestAsync(httpClient, method, params) {
 
 function getApiMessage(payload) {
   return (payload && (payload.message || payload.msg || payload.errorMsg)) || "";
+}
+
+function primitiveToText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function collectInterestingFields(value, path, output) {
+  if (!value || output.length >= 16) return;
+  if (typeof value !== "object") {
+    const normalizedPath = String(path || "").toLowerCase();
+    if (
+      normalizedPath.includes("sign") ||
+      normalizedPath.includes("task") ||
+      normalizedPath.includes("reward") ||
+      normalizedPath.includes("point") ||
+      normalizedPath.includes("day") ||
+      normalizedPath.includes("status") ||
+      normalizedPath.includes("code") ||
+      normalizedPath.includes("message") ||
+      normalizedPath.includes("msg") ||
+      normalizedPath.includes("success")
+    ) {
+      const text = primitiveToText(value);
+      if (text) output.push(path + "=" + text);
+    }
+    return;
+  }
+
+  Object.keys(value).forEach((key) => {
+    if (output.length >= 16) return;
+    collectInterestingFields(value[key], path ? path + "." + key : key, output);
+  });
+}
+
+function summarizeSignPayload(payload, data) {
+  const fields = [];
+  collectInterestingFields(payload, "", fields);
+  const summary = fields.join(", ") || summarizeBody(data);
+  return summary.length > 220 ? summary.slice(0, 217) + "..." : summary;
+}
+
+function isAlreadySignedMessage(message) {
+  const normalized = String(message || "").toLowerCase();
+  return (
+    normalized.includes("already signed") ||
+    normalized.includes("signed today") ||
+    normalized.includes("\u5df2\u7b7e\u5230") ||
+    normalized.includes("\u5df2\u7b7e")
+  );
+}
+
+function isSignStatusPath(path) {
+  const normalized = normalizeHeaderName(path);
+  return (
+    normalized.includes("issign") ||
+    normalized.includes("signed") ||
+    normalized.includes("hassigned") ||
+    normalized.includes("todaysign") ||
+    normalized.includes("signflag") ||
+    normalized.includes("signstatus") ||
+    (
+      (normalized.includes("sign") || normalized.includes("task") || normalized.includes("reward")) &&
+      (
+        normalized.includes("status") ||
+        normalized.includes("state") ||
+        normalized.includes("complete") ||
+        normalized.includes("finish")
+      )
+    )
+  );
+}
+
+function signStatusValueToState(value) {
+  if (value === true) return "signed";
+  if (value === false) return "unsigned";
+  if (typeof value === "number") {
+    if (value === 1 || value === 200) return "signed";
+    if (value === 0) return "unsigned";
+  }
+
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (
+    ["1", "true", "yes", "signed", "complete", "completed", "finish", "finished", "success", "ok"]
+      .includes(normalized)
+  ) {
+    return "signed";
+  }
+  if (
+    ["0", "false", "no", "unsigned", "incomplete", "unfinished"].includes(normalized) ||
+    normalized.includes("not signed") ||
+    normalized.includes("\u672a\u7b7e\u5230") ||
+    normalized.includes("\u5f85\u7b7e\u5230") ||
+    normalized.includes("\u53bb\u7b7e\u5230") ||
+    normalized.includes("\u672a\u5b8c\u6210")
+  ) {
+    return "unsigned";
+  }
+  if (
+    normalized.includes("\u5df2\u7b7e\u5230") ||
+    normalized.includes("\u5df2\u5b8c\u6210") ||
+    normalized.includes("\u5df2\u9886\u53d6")
+  ) {
+    return "signed";
+  }
+  return "";
+}
+
+function findSignCompletionState(value, path = "") {
+  if (!value || typeof value !== "object") return "";
+
+  const directState = isSignStatusPath(path) ? signStatusValueToState(value) : "";
+  if (directState) return directState;
+
+  const keys = Object.keys(value);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    const nestedPath = path ? path + "." + key : key;
+    const candidate = value[key];
+    const state = candidate && typeof candidate === "object"
+      ? findSignCompletionState(candidate, nestedPath)
+      : isSignStatusPath(nestedPath) ? signStatusValueToState(candidate) : "";
+    if (state) return state;
+  }
+  return "";
 }
 
 function summarizeBody(data) {
@@ -891,25 +1025,59 @@ function summarizeResults(signResult, shareResult, shareEnabled) {
 }
 
 async function runDailySignTask(input) {
-  try {
-    const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
-    const timestamp = String(Date.now());
-    const signedContext = buildSignedDailySignContext({ config: input.config, nonce, timestamp });
-    const signature = await signBase64HmacSha256(input.config.appSecret, signedContext.signString);
-    const signRequest = buildDailySignRequest({
-      config: input.config,
-      tokenState: input.tokenState,
-      nonce,
-      timestamp,
-      signature,
-    });
-    const signResult = await requestAsync(input.httpClient, "post", signRequest);
-    const signPayload = parseJson(signResult.data);
-    assertSuccessfulHttp(signResult.response, "Sign", signPayload, signResult.data);
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, message: appendOpenAppHint(error.message) };
+  const failures = [];
+
+  for (const endpoint of SIGN_ENDPOINTS) {
+    try {
+      const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
+      const timestamp = String(Date.now());
+      const signedContext = buildSignedDailySignContext({
+        config: input.config,
+        endpoint,
+        nonce,
+        timestamp,
+      });
+      const signature = await signBase64HmacSha256(input.config.appSecret, signedContext.signString);
+      const signRequest = buildDailySignRequest({
+        config: input.config,
+        endpoint,
+        tokenState: input.tokenState,
+        nonce,
+        timestamp,
+        signature,
+      });
+      const signResult = await requestAsync(input.httpClient, "post", signRequest);
+      const signPayload = parseJson(signResult.data);
+      const apiMessage = getApiMessage(signPayload);
+
+      if (isAlreadySignedMessage(apiMessage) || isAlreadySignedMessage(signResult.data)) {
+        return { ok: true };
+      }
+
+      assertSuccessfulHttp(signResult.response, "Sign", signPayload, signResult.data);
+
+      if (endpoint.mode === "action") {
+        return { ok: true };
+      }
+
+      const signState = findSignCompletionState(signPayload);
+      const responseSummary = summarizeSignPayload(signPayload, signResult.data);
+      if (signState === "signed") {
+        return { ok: true };
+      }
+      if (signState === "unsigned") {
+        throw new Error("sign info reports not signed" + (responseSummary ? ": " + responseSummary : "."));
+      }
+      throw new Error("sign info did not confirm completion" + (responseSummary ? ": " + responseSummary : "."));
+    } catch (error) {
+      failures.push(endpoint.host + endpoint.uri + ": " + error.message);
+    }
   }
+
+  return {
+    ok: false,
+    message: appendOpenAppHint(failures.join(" | ") || "no sign endpoint succeeded"),
+  };
 }
 
 async function runShareTask(input) {
@@ -1033,6 +1201,18 @@ async function runAutoCapture(options = {}) {
           "Lynk & Co Trace [" + classifyTraceUrl(traceMethod, tracedUrl) + "]",
           "",
           buildTraceSummary(traceMethod, tracedUrl),
+        );
+      }
+      if (
+        response &&
+        response.body &&
+        String(tracedUrl).toLowerCase().includes("/up/api/v1/user/sign/sign/info")
+      ) {
+        const signTracePayload = parseJson(response.body);
+        notification.post(
+          "Lynk & Co Sign Trace",
+          "",
+          summarizeSignPayload(signTracePayload, response.body) || "empty response",
         );
       }
     }
