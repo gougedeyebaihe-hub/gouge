@@ -1,11 +1,11 @@
 const TOKEN_STATE_KEY = "lynkco.share.tokenState";
+const LAST_SIGN_INFO_KEY = "lynkco.share.lastSignInfo";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const SIGN_ENDPOINTS = [
-  { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign/upgrade", mode: "action" },
   { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign/sign/info", mode: "info" },
 ];
 
@@ -89,6 +89,24 @@ function parseTokenState(raw) {
   } catch (error) {
     return emptyTokenState();
   }
+}
+
+function parseStoredSignInfo(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.payload ? parsed : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeStoredSignInfo(store, payload) {
+  if (!payload) return;
+  store.write(JSON.stringify({
+    capturedAt: new Date().toISOString(),
+    payload,
+  }), LAST_SIGN_INFO_KEY);
 }
 
 function parseJson(data) {
@@ -1146,8 +1164,21 @@ function summarizeFailures(failures) {
 }
 
 async function runDailySignTask(input) {
-  let actionSucceeded = false;
   const failures = [];
+  const storedSignInfo = parseStoredSignInfo(input.store && input.store.read(LAST_SIGN_INFO_KEY));
+  if (storedSignInfo && storedSignInfo.payload) {
+    const storedNow = new Date();
+    const storedDateKey = localDayKey(storedNow);
+    const storedState = getTodaySignState(storedSignInfo.payload, storedNow);
+    if (storedState === "signed") return { ok: true };
+    if (storedState === "unsigned") {
+      failures.push("stored sign info reports not signed: " + summarizeSignPayload(
+        storedSignInfo.payload,
+        "",
+        storedDateKey,
+      ));
+    }
+  }
 
   for (const endpoint of SIGN_ENDPOINTS) {
     try {
@@ -1178,11 +1209,6 @@ async function runDailySignTask(input) {
 
       assertSuccessfulHttp(signResult.response, "Sign", signPayload, signResult.data);
 
-      if (endpoint.mode === "action") {
-        actionSucceeded = true;
-        continue;
-      }
-
       const signNow = new Date();
       const signDateKey = localDayKey(signNow);
       const signState = getTodaySignState(signPayload, signNow);
@@ -1192,7 +1218,6 @@ async function runDailySignTask(input) {
       }
       if (signState === "unsigned") {
         throw new Error(
-          (actionSucceeded ? "sign action ran, but " : "") +
           "sign info reports not signed" + (responseSummary ? ": " + responseSummary : "."),
         );
       }
@@ -1288,6 +1313,7 @@ async function runDailyTasks(input) {
   const signResult = await runDailySignTask({
     config,
     tokenState,
+    store: input.store,
     httpClient: input.httpClient,
   });
 
@@ -1344,6 +1370,7 @@ async function runAutoCapture(options = {}) {
       }
       if (response && response.body && isSignInfoUrl(tracedUrl)) {
         const signTracePayload = parseJson(response.body);
+        writeStoredSignInfo(store, signTracePayload);
         notification.post(
           "Lynk & Co Sign Trace",
           "",
