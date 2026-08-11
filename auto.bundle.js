@@ -4,9 +4,23 @@ const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812e";
+const SCRIPT_VERSION = "v20260812g";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
+const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
+const DEFAULT_LYNK_CO_APP_SECRET = "QCl7udM3PB9cOIOwquwPglikFQnzJRsX";
+const LYNK_CO_APP_SECRETS = {
+  "203760416": "e1msl9aqd101gfcjpo873hrs5jg752og",
+  "204644386": "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
+};
+
+function resolveLynkAppSecret(xCaKey) {
+  const normalizedKey = String(xCaKey || "").trim();
+  return Object.prototype.hasOwnProperty.call(LYNK_CO_APP_SECRETS, normalizedKey)
+    ? LYNK_CO_APP_SECRETS[normalizedKey]
+    : DEFAULT_LYNK_CO_APP_SECRET;
+}
+
 const SIGN_ENDPOINTS = [
   { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
   { host: "h5-api.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
@@ -62,8 +76,8 @@ function buildShareConfig(input) {
     signRequestNotify: truthyFlag(source.signRequestNotify, false),
     signCandidateNotify: truthyFlag(source.signCandidateNotify, false),
     signUpgradeNotify: truthyFlag(source.signUpgradeNotify, false),
-    xCaKey: source.xCaKey || "204644386",
-    appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
+    xCaKey: source.xCaKey || DEFAULT_LYNK_CO_XCA_KEY,
+    appSecret: source.appSecret || resolveLynkAppSecret(source.xCaKey || DEFAULT_LYNK_CO_XCA_KEY),
     appCode: source.appCode || "3fa3314998bd4195a9fe2df3e85e6a12",
   };
 }
@@ -269,6 +283,63 @@ function listUsefulHeaderNames(headers) {
   }).slice(0, 14);
 }
 
+function pickCapturedExtraHeaders(headers) {
+  const extraHeaders = {};
+  Object.keys(headers || {}).forEach((name) => {
+    const normalized = normalizeHeaderName(name);
+    if (
+      !normalized ||
+      normalized.includes("authorization") ||
+      normalized.includes("cookie") ||
+      normalized.includes("nonce") ||
+      normalized.includes("signature") ||
+      normalized.includes("token") ||
+      normalized.includes("oauth") ||
+      normalized.includes("refresh") ||
+      normalized.includes("contentlength") ||
+      normalized.includes("contenttype") ||
+      normalized.includes("host") ||
+      normalized.includes("connection") ||
+      normalized.includes("useragent") ||
+      normalized.includes("accept") ||
+      (normalized.includes("xca") && !normalized.includes("xcaappcode"))
+    ) {
+      return;
+    }
+    extraHeaders[name] = headers[name];
+  });
+  return extraHeaders;
+}
+
+function summarizeCapturedExtraHeaders(headers) {
+  const extraHeaders = pickCapturedExtraHeaders(headers);
+  return Object.keys(extraHeaders)
+    .filter((name) => {
+      const normalized = normalizeHeaderName(name);
+      return [
+        "authentication",
+        "acl",
+        "appcode",
+        "appid",
+        "appversion",
+        "brand",
+        "channel",
+        "client",
+        "consumer",
+        "device",
+        "platform",
+        "risk",
+        "security",
+        "svcsid",
+        "tenant",
+        "version",
+      ].some((marker) => normalized.includes(marker));
+    })
+    .slice(0, 8)
+    .map((name) => name + "=" + maskValue(extraHeaders[name]))
+    .join("|");
+}
+
 function summarizeSignUpgradeRequest(request) {
   const headers = (request && request.headers) || {};
   const headerNames = listUsefulHeaderNames(headers);
@@ -303,6 +374,7 @@ function buildStoredCapturedSignRequest(request) {
     body: request.body || "",
     bodyLength: requestBodyLength(request),
     headers: request.headers || {},
+    extraHeaders: summarizeCapturedExtraHeaders(request.headers),
     headerNames: listUsefulHeaderNames(headers),
   };
   return captured;
@@ -333,7 +405,7 @@ function summarizeStoredSignActionRequest(captured) {
     "token=" + (captured.hasToken ? "yes" : "no"),
     "oauth=" + (captured.hasOAuth ? "yes" : "no"),
     "body=" + (captured.body || "empty"),
-    "headers=" + (captured.headerNames && captured.headerNames.length ? captured.headerNames.join("|") : "none"),
+    "extra=" + (captured.extraHeaders || "none"),
   ].join(",");
 }
 
@@ -831,7 +903,7 @@ function buildSignAuthHeaders(tokenState, config) {
   return headers;
 }
 
-function buildSignedHeaders(input, authHeaders) {
+function buildSignedHeaders(input, authHeaders, extraHeaders) {
   const resolvedAuthHeaders = authHeaders || buildAuthHeaders(input.tokenState, input.config);
   return Object.assign({
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
@@ -844,7 +916,7 @@ function buildSignedHeaders(input, authHeaders) {
     "X-Ca-Signature-Method": "HmacSHA256",
     "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
     token: input.tokenState.token,
-  }, resolvedAuthHeaders);
+  }, resolvedAuthHeaders, extraHeaders || {});
 }
 
 function buildRefreshTokenRequest(input) {
@@ -865,7 +937,11 @@ function buildDailySignRequest(input) {
   return {
     method: "POST",
     url: "https://" + input.endpoint.host + input.endpoint.uri,
-    headers: buildSignedHeaders(input, buildSignAuthHeaders(input.tokenState, input.config)),
+    headers: buildSignedHeaders(
+      input,
+      buildSignAuthHeaders(input.tokenState, input.config),
+      input.extraHeaders,
+    ),
     body: "{}",
   };
 }
@@ -1390,6 +1466,9 @@ function summarizeFailures(failures) {
   if (!failures.length) return "no sign endpoint succeeded";
   const primaryIndex = failures.findIndex((item) => item.includes("HTTP 403"));
   const primary = failures[primaryIndex >= 0 ? primaryIndex : 0];
+  if (primary.includes("extra=")) {
+    return primary.length > 520 ? primary.slice(0, 517) + "..." : primary;
+  }
   const summary = [primary]
     .concat(failures.filter((item) => item !== primary).slice(0, 2).map(shortenFailure))
     .join(" || ");
@@ -1400,6 +1479,11 @@ function buildSignFailureDetails(endpoint, signRequest, signResult, error, store
   const base = endpoint.host + endpoint.uri + ": " + error.message;
   const status = getHttpStatus(signResult && signResult.response);
   if (!status || status < 400) return base;
+
+  const captured = readStoredSignActionRequest(store);
+  if (captured) {
+    return "HTTP 403: " + summarizeStoredSignActionRequest(captured);
+  }
 
   const parts = [base];
   const headers = signRequest && signRequest.headers;
@@ -1413,10 +1497,6 @@ function buildSignFailureDetails(endpoint, signRequest, signResult, error, store
   }
   if (signResult && signResult.data) {
     parts.push("resp=" + summarizeBody(signResult.data));
-  }
-  const captured = readStoredSignActionRequest(store);
-  if (captured) {
-    parts.push("appCapture=" + summarizeStoredSignActionRequest(captured));
   }
   return parts.join(" | ");
 }
@@ -1468,6 +1548,7 @@ async function runDailySignTask(input) {
   const signConfig = capturedRequest
     ? Object.assign({}, input.config, {
         xCaKey: capturedRequest.xCaKey || input.config.xCaKey,
+        appSecret: resolveLynkAppSecret(capturedRequest.xCaKey || input.config.xCaKey),
         appCode: capturedRequest.hasAuthorization === false ? "" : input.config.appCode,
       })
     : input.config;
@@ -1478,6 +1559,9 @@ async function runDailySignTask(input) {
           : (capturedRequest.authorization || input.tokenState.authorization),
       })
     : input.tokenState;
+  const signExtraHeaders = capturedRequest
+    ? pickCapturedExtraHeaders(capturedRequest.headers)
+    : {};
 
   for (const endpoint of SIGN_ENDPOINTS) {
     let signRequest = null;
@@ -1496,6 +1580,7 @@ async function runDailySignTask(input) {
         config: signConfig,
         endpoint,
         tokenState: signTokenState,
+        extraHeaders: signExtraHeaders,
         nonce,
         timestamp,
         signature,
