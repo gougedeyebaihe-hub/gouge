@@ -47,7 +47,7 @@ Current script cache version:
 当前脚本缓存版本：
 
 ```text
-auto.bundle.js?v=20260812i
+auto.bundle.js?v=20260812j
 ```
 
 ## Repository Contents / 仓库内容
@@ -117,7 +117,7 @@ articleId=
 debugNotify=0
 shareEnabled=1
 autoRunOnCapture=1
-pingNotify=0
+pingNotify=1
 captureTraceNotify=0
 signTraceNotify=0
 signRequestNotify=0
@@ -168,13 +168,13 @@ Loon 中必须对这些精确域名开启并信任 MITM。确认签到接口后�
 ## Daily Use / 日常使用
 
 1. Update the remote plugin in Loon.
-2. Confirm the script URL contains `v=20260812i`.
+2. Confirm the script URL contains `v=20260812j`.
 3. Confirm MITM is enabled.
 4. Open Lynk & Co once during the day.
 5. Wait for `Sign: ok | Share: ok`.
 
 1. 在 Loon 中更新远程插件。
-2. 确认脚本 URL 包含 `v=20260812i`。
+2. 确认脚本 URL 包含 `v=20260812j`。
 3. 确认 MITM 已启用。
 4. 当天打开一次领克 App。
 5. 等待 `Sign: ok | Share: ok`。
@@ -199,12 +199,12 @@ If nothing happens:
 
 如果没有任何反应：
 
-1. Make sure the plugin is updated to `v=20260812i`.
+1. Make sure the plugin is updated to `v=20260812j`.
 2. Make sure MITM is enabled for `h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com`.
 3. Temporarily set `pingNotify=1` to confirm whether the script is being hit.
 4. Temporarily set `debugNotify=1` to confirm whether token state is captured.
 
-1. 确认插件已更新到 `v=20260812i`。
+1. 确认插件已更新到 `v=20260812j`。
 2. 确认 `h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com` 已开启 MITM。
 3. 临时把 `pingNotify=1`，确认脚本是否命中。
 4. 临时把 `debugNotify=1`，确认是否抓到 token 状态。
@@ -213,9 +213,9 @@ If it reports success but the app does not show points immediately, wait a short
 
 如果通知成功但 App 里积分没有马上变化，等一会儿后刷新领克积分页面。
 
-If sign reports `HTTP 403` / `Unauthorized Consumer` / `Invalid AppKey`, update to `v20260812i` and open Lynk & Co once. The plugin stores only real POST sign actions, not GET sign-info requests, matches the gateway secret to the captured `X-Ca-Key`, and retries the new sign endpoint. Share uses the same captured gateway key/secret so it no longer falls back to stale authorization. If it still fails, the notification shows the captured key and extra headers for diagnosis.
+If sign reports `HTTP 403` / `Unauthorized Consumer` / `Invalid AppKey`, update to `v20260812j` and open Lynk & Co once. The plugin stores only real POST sign actions, not GET sign-info requests, matches the gateway secret to the captured `X-Ca-Key`, and retries the new sign endpoint. Share uses the same captured gateway key/secret so it no longer falls back to stale authorization. `pingNotify=1` is temporarily enabled in this diagnostic version.
 
-如果签到提示 `HTTP 403` / `Unauthorized Consumer` / `Invalid AppKey`，请更新到 `v20260812i` 并打开一次领克 App。插件只保存真实 POST 签到动作，不会再把 GET 签到信息接口误当成签到请求，并按抓到的 `X-Ca-Key` 匹配对应网关密钥、重试新签到接口；分享也会复用同一套抓到的网关 key/密钥，避免继续使用过期授权。若仍失败，通知会显示抓到的 key 和关键头供排查。
+如果签到提示 `HTTP 403` / `Unauthorized Consumer` / `Invalid AppKey`，请更新到 `v20260812j` 并打开一次领克 App。插件只保存真实 POST 签到动作，不会再把 GET 签到信息接口误当成签到请求，并按抓到的 `X-Ca-Key` 匹配对应网关密钥、重试新签到接口；分享也会复用同一套抓到的网关 key/密钥，避免继续使用过期授权。这个诊断版临时默认开启 `pingNotify=1`。
 
 ## Archived Notes / 归档说明
 
