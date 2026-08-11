@@ -4,7 +4,7 @@ const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812g";
+const SCRIPT_VERSION = "v20260812h";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -970,7 +970,7 @@ function buildGetShareCodeRequest(input) {
       use_security: "true",
       risk_type: "1",
       appVersion: "4.2.3",
-    }, buildAuthHeaders(input.tokenState, input.config)),
+    }, buildAuthHeaders(input.tokenState, input.config), input.extraHeaders || {}),
   };
 }
 
@@ -982,7 +982,7 @@ function buildShareReportingRequest(input) {
       "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
       "Content-Type": "application/json",
       Accept: "*/*",
-    }, buildAuthHeaders(input.tokenState, input.config)),
+    }, buildAuthHeaders(input.tokenState, input.config), input.extraHeaders || {}),
     body: JSON.stringify({
       businessNo: input.config.articleId,
       eventData: {
@@ -1680,6 +1680,24 @@ async function runShareTask(input) {
 async function runDailyTasks(input) {
   let tokenState = input.tokenState;
   const config = input.config;
+  const capturedRequest = readStoredSignActionRequest(input.store);
+  const shareConfig = capturedRequest
+    ? Object.assign({}, config, {
+        xCaKey: capturedRequest.xCaKey || config.xCaKey,
+        appSecret: resolveLynkAppSecret(capturedRequest.xCaKey || config.xCaKey),
+        appCode: capturedRequest.hasAuthorization === false ? "" : config.appCode,
+      })
+    : config;
+  const shareTokenState = capturedRequest
+    ? Object.assign({}, tokenState, {
+        authorization: capturedRequest.hasAuthorization === false
+          ? ""
+          : (capturedRequest.authorization || tokenState.authorization),
+      })
+    : tokenState;
+  const shareExtraHeaders = capturedRequest
+    ? pickCapturedExtraHeaders(capturedRequest.headers)
+    : {};
 
   if (tokenState.refreshToken) {
     try {
@@ -1710,8 +1728,9 @@ async function runDailyTasks(input) {
   let shareResult = null;
   if (config.shareEnabled) {
     shareResult = await runShareTask({
-      config,
-      tokenState,
+      config: shareConfig,
+      tokenState: shareTokenState,
+      extraHeaders: shareExtraHeaders,
       httpClient: input.httpClient,
     });
   }

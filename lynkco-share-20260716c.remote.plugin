@@ -1,5 +1,5 @@
 #!name=Lynk & Co Auto Tasks
-#!desc=Capture auth state and run sign/share when a Lynk & Co token is detected | Version v20260812g
+#!desc=Capture auth state and run sign/share when a Lynk & Co token is detected | Version v20260812h
 #!arguments=articleId=,debugNotify=0,shareEnabled=1,autoRunOnCapture=1,pingNotify=0,captureTraceNotify=0,signTraceNotify=0,signRequestNotify=0,signCandidateNotify=0,signUpgradeNotify=0
 #!author=OpenAI Codex
 #!homepage=https://nsloon.app/docs/
@@ -17,9 +17,9 @@ signCandidateNotify=0
 signUpgradeNotify=0
 
 [Script]
-cron "*/30 * * * *" script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260812g,tag=lynkco-auto-cron,timeout=90,enable=true
-http-request ^https?:\/\/(h5-api|h5|app-api-gw-toc)\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260812g,requires-body=true,tag=lynkco-auto-capture,timeout=90,enable=true
-http-response ^https?:\/\/(h5-api|h5|app-api-gw-toc)\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260812g,requires-body=true,tag=lynkco-auto-run,timeout=90,enable=true
+cron "*/30 * * * *" script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260812h,tag=lynkco-auto-cron,timeout=90,enable=true
+http-request ^https?:\/\/(h5-api|h5|app-api-gw-toc)\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260812h,requires-body=true,tag=lynkco-auto-capture,timeout=90,enable=true
+http-response ^https?:\/\/(h5-api|h5|app-api-gw-toc)\.lynkco\.com\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/auto.bundle.js?v=20260812h,requires-body=true,tag=lynkco-auto-run,timeout=90,enable=true
 
 [MITM]
 hostname = h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com
