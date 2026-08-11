@@ -47,7 +47,7 @@ Current script cache version:
 当前脚本缓存版本：
 
 ```text
-auto.bundle.js?v=20260811a
+auto.bundle.js?v=20260812a
 ```
 
 ## Repository Contents / 仓库内容
@@ -84,25 +84,27 @@ Removed legacy files:
 
 ## How It Works / 工作方式
 
-The plugin no longer uses a fixed 8:00 cron schedule. It runs when Lynk & Co app traffic is seen by Loon.
+The plugin has a 30-minute cron fallback and also runs when Lynk & Co app traffic is seen by Loon.
 
-插件不再使用固定早上 8 点的定时任务，而是在 Loon 检测到领克 App 流量时触发。
+插件现在有 30 分钟定时兜底，也会在 Loon 检测到领克 App 流量时触发。
 
 Flow:
 
 流程：
 
-1. `http-request` and `http-response` listen to Lynk & Co traffic on matched Lynk domains.
-2. If a token or authorization header is detected, the script stores the latest auth state.
-3. The script immediately checks whether a short in-flight lock is active.
-4. If no recent run is in progress, it runs sign-in and share.
-5. It posts one final notification with the sign/share result.
+1. A 30-minute cron runner reads the stored auth state when no Lynk traffic is available.
+2. `http-request` and `http-response` listen to Lynk & Co traffic on matched Lynk domains.
+3. If a token or authorization header is detected, the script stores the latest auth state.
+4. The script checks today's completion state and a short in-flight lock.
+5. If not already completed today, it runs sign-in and share.
+6. It posts one final notification with the sign/share result.
 
-1. `http-request` 和 `http-response` 监听匹配到的领克域名流量。
-2. 如果检测到 token 或 authorization，脚本会保存最新认证状态。
-3. 脚本立即检查短时间运行锁是否还在生效。
-4. 如果最近没有正在执行的任务，就执行签到和分享。
-5. 最后通过一条通知返回签到/分享结果。
+1. 30 分钟定时任务会在没有领克流量时读取已保存的认证状态。
+2. `http-request` 和 `http-response` 监听匹配到的领克域名流量。
+3. 如果检测到 token 或 authorization，脚本会保存最新认证状态。
+4. 脚本检查当天完成状态和短时运行锁。
+5. 如果当天还没完成，就执行签到和分享。
+6. 最后通过一条通知返回签到/分享结果。
 
 ## Loon Arguments / Loon 参数
 
@@ -166,13 +168,13 @@ Loon 中必须对这些精确域名开启并信任 MITM。确认签到接口后�
 ## Daily Use / 日常使用
 
 1. Update the remote plugin in Loon.
-2. Confirm the script URL contains `v=20260811a`.
+2. Confirm the script URL contains `v=20260812a`.
 3. Confirm MITM is enabled.
 4. Open Lynk & Co once during the day.
 5. Wait for `Sign: ok | Share: ok`.
 
 1. 在 Loon 中更新远程插件。
-2. 确认脚本 URL 包含 `v=20260811a`。
+2. 确认脚本 URL 包含 `v=20260812a`。
 3. 确认 MITM 已启用。
 4. 当天打开一次领克 App。
 5. 等待 `Sign: ok | Share: ok`。
@@ -180,13 +182,13 @@ Loon 中必须对这些精确域名开启并信任 MITM。确认签到接口后�
 ## Known Limitations / 已知限制
 
 - Loon cannot automatically open Lynk & Co on iOS.
-- The plugin depends on Lynk & Co producing traffic that Loon can see.
+- The plugin can run from a stored token, but a usable token must have been captured at least once.
 - If neither current traffic nor stored state includes a usable token, no task will run.
 - The share task uses the first article from the Information page by default. If article discovery fails, it falls back to the built-in article id.
 - The plugin only MITMs the confirmed auth, article, and sign hosts to avoid disrupting unrelated Lynk & Co app traffic.
 
 - Loon 不能在 iOS 上自动打开领克 App。
-- 插件依赖领克 App 产生 Loon 能看到的流量。
+- 插件可以使用已保存的 token 执行，但至少要先抓到一次可用 token。
 - 如果当前流量和本地缓存里都没有可用 token，任务不会执行。
 - 分享任务默认使用资讯页第 1 篇文章；如果自动发现失败，会回退到内置文章 ID。
 - 插件只 MITM 已确认的认证、文章、签到域名，避免影响领克 App 其它流量。
@@ -197,12 +199,12 @@ If nothing happens:
 
 如果没有任何反应：
 
-1. Make sure the plugin is updated to `v=20260811a`.
+1. Make sure the plugin is updated to `v=20260812a`.
 2. Make sure MITM is enabled for `h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com`.
 3. Temporarily set `pingNotify=1` to confirm whether the script is being hit.
 4. Temporarily set `debugNotify=1` to confirm whether token state is captured.
 
-1. 确认插件已更新到 `v=20260811a`。
+1. 确认插件已更新到 `v=20260812a`。
 2. 确认 `h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com` 已开启 MITM。
 3. 临时把 `pingNotify=1`，确认脚本是否命中。
 4. 临时把 `debugNotify=1`，确认是否抓到 token 状态。
@@ -213,6 +215,6 @@ If it reports success but the app does not show points immediately, wait a short
 
 ## Archived Notes / 归档说明
 
-Earlier versions used a fixed cron schedule or a delayed five-minute cron runner. Those modes were removed because the confirmed working behavior is immediate execution after token capture.
+Earlier versions used a fixed cron schedule or a delayed five-minute cron runner. The current version keeps a 30-minute cron fallback that reads stored auth state, so tasks can run even when Lynk & Co app traffic is not seen.
 
-早期版本尝试过固定时间 cron 和五分钟延迟 cron。最终确认可用的是检测到 token 后立即执行，因此这些旧模式已不再作为当前方案使用。
+早期版本尝试过固定时间 cron 和五分钟延迟 cron。当前版本保留 30 分钟 cron 兜底，并会读取已保存的认证状态，即使没有抓到领克流量也能执行任务。

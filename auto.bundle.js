@@ -4,6 +4,7 @@ const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
+const SCRIPT_VERSION = "v20260812a";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const SIGN_ENDPOINTS = [
@@ -418,16 +419,22 @@ function localDayKey(date) {
 }
 
 function parseAutoRunState(raw) {
-  if (!raw) return { lastRunDate: "", lastResult: "" };
+  if (!raw) return { lastRunDate: "", lastResult: "", scriptVersion: "" };
   try {
     const parsed = JSON.parse(raw);
     return {
       lastRunDate: parsed.lastRunDate || "",
       lastResult: parsed.lastResult || "",
+      scriptVersion: parsed.scriptVersion || "",
     };
   } catch (error) {
-    return { lastRunDate: "", lastResult: "" };
+    return { lastRunDate: "", lastResult: "", scriptVersion: "" };
   }
+}
+
+function isSuccessfulAutoRunSummary(result, shareEnabled) {
+  if (!result) return false;
+  return result.includes("Sign: ok") && (!shareEnabled || result.includes("Share: ok"));
 }
 
 function parseAutoTrigger(raw) {
@@ -458,12 +465,25 @@ function parseAutoRunLock(raw) {
 
 function shouldStartAutoRun(input) {
   if (!input.config.autoRunOnCapture) return { ok: false, reason: "disabled" };
-  if (!input.detectedTokenNow && !input.triggeredByUsefulRequest) {
+  const allowsStoredToken = input.triggerMode === "cron" || input.triggerMode === "request";
+  if (!input.detectedTokenNow && !input.triggeredByUsefulRequest && !allowsStoredToken) {
     return { ok: false, reason: "no token detected in this script run" };
   }
   if (!hasTokenState(input.tokenState)) return { ok: false, reason: "missing token" };
 
   const today = localDayKey(input.now);
+  const state = parseAutoRunState(input.store.read(AUTO_RUN_STATE_KEY));
+  const stateMatchesVersion = state.scriptVersion === SCRIPT_VERSION;
+  if (input.triggerMode === "cron" && stateMatchesVersion && state.lastRunDate === today && state.lastResult) {
+    return { ok: false, reason: "already attempted today" };
+  }
+  if (
+    stateMatchesVersion &&
+    state.lastRunDate === today &&
+    isSuccessfulAutoRunSummary(state.lastResult, input.config.shareEnabled)
+  ) {
+    return { ok: false, reason: "already completed today" };
+  }
   const lock = parseAutoRunLock(input.store.read(AUTO_RUN_LOCK_KEY));
   if (lock.date === today && input.now.getTime() - lock.startedAt < AUTO_LOCK_TTL_MS) {
     return { ok: false, reason: "run in progress" };
@@ -487,6 +507,7 @@ function markAutoRunFinished(store, date, result) {
   store.write(JSON.stringify({
     lastRunDate: date,
     lastResult: result,
+    scriptVersion: SCRIPT_VERSION,
     finishedAt: new Date().toISOString(),
   }), AUTO_RUN_STATE_KEY);
 }
@@ -1461,7 +1482,46 @@ async function runAutoCapture(options = {}) {
 
   try {
     if (!request && !response) {
-      done();
+      const previousTokenState = parseTokenState(store.read(TOKEN_STATE_KEY));
+      const now = new Date();
+      const today = localDayKey(now);
+
+      if (!hasTokenState(previousTokenState)) {
+        const missingTokenResult = { ok: false, message: "no saved token" };
+        const missingTokenSummary = summarizeResults(
+          missingTokenResult,
+          missingTokenResult,
+          config.shareEnabled,
+        );
+        const state = parseAutoRunState(store.read(AUTO_RUN_STATE_KEY));
+        const stateMatchesVersion = state.scriptVersion === SCRIPT_VERSION;
+        if (!stateMatchesVersion || state.lastRunDate !== today || !state.lastResult) {
+          markAutoRunFinished(store, today, missingTokenSummary);
+          notification.post("Lynk & Co Share", "", missingTokenSummary + " Open Lynk & Co once.");
+        }
+        done({});
+        return;
+      }
+
+      const gate = shouldStartAutoRun({
+        config,
+        detectedTokenNow: false,
+        now,
+        store,
+        tokenState: previousTokenState,
+        triggeredByUsefulRequest: false,
+        triggerMode: "cron",
+      });
+      if (!gate.ok) {
+        done({});
+        return;
+      }
+
+      markAutoRunStarted(store, gate.today, now);
+      const summary = await runDailyTasks({ config, tokenState: previousTokenState, store, httpClient });
+      markAutoRunFinished(store, gate.today, summary);
+      notification.post("Lynk & Co Share", "", summary);
+      done({});
       return;
     }
 
@@ -1559,6 +1619,7 @@ async function runAutoCapture(options = {}) {
       store,
       tokenState,
       triggeredByUsefulRequest,
+      triggerMode: "request",
     });
 
     if (!gate.ok) {
