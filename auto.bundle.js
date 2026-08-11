@@ -7,7 +7,10 @@ const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const SIGN_ENDPOINTS = [
-  { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign/sign/info", mode: "info" },
+  { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
+  { host: "h5-api.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
+  { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign/upgrade", mode: "action" },
+  { host: "h5-api.lynkco.com", uri: "/up/api/v1/user/sign/upgrade", mode: "action" },
 ];
 
 function parseArgumentString(argument) {
@@ -31,7 +34,13 @@ function truthyFlag(value, defaultValue) {
 }
 
 function buildShareUrl(articleId) {
-  return "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id=" + articleId;
+  const route = "lynkco://wx/?routeUrl=/pages/exploration/article/index.js?id=" + articleId;
+  return (
+    "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id=" +
+    articleId +
+    "&isShare=" +
+    encodeURIComponent(route)
+  );
 }
 
 function buildShareConfig(input) {
@@ -51,9 +60,10 @@ function buildShareConfig(input) {
     signTraceNotify: truthyFlag(source.signTraceNotify, false),
     signRequestNotify: truthyFlag(source.signRequestNotify, false),
     signCandidateNotify: truthyFlag(source.signCandidateNotify, false),
-    signUpgradeNotify: truthyFlag(source.signUpgradeNotify, true),
+    signUpgradeNotify: truthyFlag(source.signUpgradeNotify, false),
     xCaKey: source.xCaKey || "204644386",
     appSecret: source.appSecret || "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
+    appCode: source.appCode || "3fa3314998bd4195a9fe2df3e85e6a12",
   };
 }
 
@@ -280,6 +290,17 @@ function isSignUpgradeUrl(url) {
   return String(url || "").toLowerCase().includes("/up/api/v1/user/sign/upgrade");
 }
 
+function isUsefulTaskUrl(url) {
+  const normalized = String(url || "").toLowerCase();
+  return (
+    normalized.includes("/up/api/v1/user/sign") ||
+    normalized.includes("/up/api/v1/userreward/") ||
+    normalized.includes("/app/v1/task/") ||
+    normalized.includes("/app/explore/home-page/") ||
+    normalized.includes("/app/energy/")
+  );
+}
+
 function isSignCandidateUrl(method, url) {
   const normalizedMethod = String(method || "GET").toUpperCase();
   const normalizedUrl = String(url || "").toLowerCase();
@@ -440,7 +461,7 @@ function shouldStartAutoRun(input) {
   if (!input.detectedTokenNow && !input.triggeredByUsefulRequest) {
     return { ok: false, reason: "no token detected in this script run" };
   }
-  if (!input.tokenState.token) return { ok: false, reason: "missing token" };
+  if (!hasTokenState(input.tokenState)) return { ok: false, reason: "missing token" };
 
   const today = localDayKey(input.now);
   const lock = parseAutoRunLock(input.store.read(AUTO_RUN_LOCK_KEY));
@@ -687,7 +708,7 @@ function formatRiskOpenTime(date) {
   return year + "-" + month + "-" + day + " " + hours + ":" + minutes + ":" + seconds;
 }
 
-function buildAuthHeaders(tokenState) {
+function buildAuthHeaders(tokenState, config) {
   const headers = {};
   if (!tokenState) return headers;
 
@@ -696,6 +717,8 @@ function buildAuthHeaders(tokenState) {
   if (tokenState.oauthRefreshToken) headers.oauthRefreshToken = tokenState.oauthRefreshToken;
   if (tokenState.authorization) {
     headers.authorization = tokenState.authorization;
+  } else if (config && config.appCode) {
+    headers.authorization = "APPCODE " + config.appCode;
   } else if (tokenState.oauthAccessToken) {
     headers.authorization = "Bearer " + tokenState.oauthAccessToken;
   }
@@ -707,6 +730,7 @@ function buildSignedHeaders(input) {
   return Object.assign({
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
     "Content-Type": "application/json",
+    Accept: "*/*",
     "X-Ca-Key": input.config.xCaKey,
     "X-Ca-Nonce": input.nonce,
     "X-Ca-Timestamp": input.timestamp,
@@ -714,19 +738,20 @@ function buildSignedHeaders(input) {
     "X-Ca-Signature-Method": "HmacSHA256",
     "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
     token: input.tokenState.token,
-  }, buildAuthHeaders(input.tokenState));
+  }, buildAuthHeaders(input.tokenState, input.config));
 }
 
 function buildRefreshTokenRequest(input) {
   return {
     method: "GET",
     url: "https://h5-api.lynkco.com/auth/login/refresh?deviceId=&deviceType=Web&refreshToken=" + encodeURIComponent(input.tokenState.refreshToken),
-    headers: {
+    headers: Object.assign({
       "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
       "Content-Type": "application/json",
+      Accept: "*/*",
       "X-Ca-Key": input.config.xCaKey,
       token: input.tokenState.token,
-    },
+    }, buildAuthHeaders(input.tokenState, input.config)),
   };
 }
 
@@ -735,6 +760,7 @@ function buildDailySignRequest(input) {
     method: "POST",
     url: "https://" + input.endpoint.host + input.endpoint.uri,
     headers: buildSignedHeaders(input),
+    body: "{}",
   };
 }
 
@@ -748,9 +774,10 @@ function buildGetShareCodeRequest(input) {
   return {
     method: "GET",
     url: "https://h5-api.lynkco.com/app/v1/task/getShareCode",
-    headers: {
+    headers: Object.assign({
       "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
       "Content-Type": "application/json",
+      Accept: "*/*",
       "X-Ca-Key": input.config.xCaKey,
       "X-Ca-Nonce": input.nonce,
       "X-Ca-Timestamp": input.timestamp,
@@ -758,8 +785,10 @@ function buildGetShareCodeRequest(input) {
       "X-Ca-Signature-Method": "HmacSHA256",
       "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
       risk_request_info: riskRequestInfo,
-      token: input.tokenState.token,
-    },
+      use_security: "true",
+      risk_type: "1",
+      appVersion: "4.2.3",
+    }, buildAuthHeaders(input.tokenState, input.config)),
   };
 }
 
@@ -770,7 +799,8 @@ function buildShareReportingRequest(input) {
     headers: Object.assign({
       "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
       "Content-Type": "application/json",
-    }, buildAuthHeaders(input.tokenState)),
+      Accept: "*/*",
+    }, buildAuthHeaders(input.tokenState, input.config)),
     body: JSON.stringify({
       businessNo: input.config.articleId,
       eventData: {
@@ -788,13 +818,14 @@ function buildSignedGetRequest(input) {
     headers: Object.assign({
       "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
       "Content-Type": "application/json",
+      Accept: "*/*",
       "X-Ca-Key": input.config.xCaKey,
       "X-Ca-Nonce": input.nonce,
       "X-Ca-Timestamp": input.timestamp,
       "X-Ca-Signature": input.signature,
       "X-Ca-Signature-Method": "HmacSHA256",
       "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
-    }, buildAuthHeaders(input.tokenState), input.extraHeaders || {}),
+    }, buildAuthHeaders(input.tokenState, input.config), input.extraHeaders || {}),
   };
 }
 
@@ -1294,6 +1325,10 @@ async function runDailySignTask(input) {
 
       assertSuccessfulHttp(signResult.response, "Sign", signPayload, signResult.data);
 
+      if (endpoint.mode === "action") {
+        return { ok: true };
+      }
+
       const signNow = new Date();
       const signDateKey = localDayKey(signNow);
       const signState = getTodaySignState(signPayload, signNow);
@@ -1495,7 +1530,7 @@ async function runAutoCapture(options = {}) {
     const currentMethod =
       (request && request.method) ||
       ((response && response.statusCode) || response ? "RESPONSE" : "GET");
-    const triggeredByUsefulRequest = isSignInfoUrl(currentUrl);
+    const triggeredByUsefulRequest = isUsefulTaskUrl(currentUrl);
     const capturedTokenState = mergeTokenState(
       mergeTokenState(extractRequestTokenState(request), extractBodyTokenState(request && request.body)),
       extractBodyTokenState(response && response.body),
