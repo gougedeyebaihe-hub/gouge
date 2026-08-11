@@ -4,7 +4,7 @@ const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812a";
+const SCRIPT_VERSION = "v20260812b";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const SIGN_ENDPOINTS = [
@@ -747,7 +747,25 @@ function buildAuthHeaders(tokenState, config) {
   return headers;
 }
 
-function buildSignedHeaders(input) {
+function buildSignAuthHeaders(tokenState) {
+  const headers = {};
+  if (!tokenState) return headers;
+
+  const token = tokenState.token || tokenState.oauthAccessToken || "";
+  if (token) headers.token = token;
+  if (tokenState.oauthAccessToken) headers.oauthAccessToken = tokenState.oauthAccessToken;
+  if (tokenState.oauthRefreshToken) headers.oauthRefreshToken = tokenState.oauthRefreshToken;
+
+  const authorization = tokenState.authorization || "";
+  if (authorization && !String(authorization).toLowerCase().startsWith("appcode ")) {
+    headers.authorization = authorization;
+  }
+
+  return headers;
+}
+
+function buildSignedHeaders(input, authHeaders) {
+  const resolvedAuthHeaders = authHeaders || buildAuthHeaders(input.tokenState, input.config);
   return Object.assign({
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
     "Content-Type": "application/json",
@@ -759,7 +777,7 @@ function buildSignedHeaders(input) {
     "X-Ca-Signature-Method": "HmacSHA256",
     "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
     token: input.tokenState.token,
-  }, buildAuthHeaders(input.tokenState, input.config));
+  }, resolvedAuthHeaders);
 }
 
 function buildRefreshTokenRequest(input) {
@@ -780,7 +798,7 @@ function buildDailySignRequest(input) {
   return {
     method: "POST",
     url: "https://" + input.endpoint.host + input.endpoint.uri,
-    headers: buildSignedHeaders(input),
+    headers: buildSignedHeaders(input, buildSignAuthHeaders(input.tokenState)),
     body: "{}",
   };
 }
