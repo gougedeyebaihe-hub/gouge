@@ -4,7 +4,7 @@ const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812b";
+const SCRIPT_VERSION = "v20260812c";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const SIGN_ENDPOINTS = [
@@ -1133,7 +1133,8 @@ function getTodaySignState(payload, now) {
     const dateKeys = Object.keys(data).filter(isDateLikeKey);
     if (dateKeys.length) {
       const todayEntry = getTodaySignEntry(payload, todayKey);
-      return todayEntry ? findSignCompletionState(todayEntry, todayKey) || "unsigned" : "unsigned";
+      if (!todayEntry) return "";
+      return findSignCompletionState(todayEntry, todayKey) || "unsigned";
     }
   }
   return findSignCompletionState(payload);
@@ -1326,13 +1327,6 @@ async function runDailySignTask(input) {
     const storedDateKey = localDayKey(storedNow);
     const storedState = getTodaySignState(storedSignInfo.payload, storedNow);
     if (storedState === "signed") return { ok: true };
-    if (storedState === "unsigned") {
-      failures.push("stored sign info reports not signed: " + summarizeSignPayload(
-        storedSignInfo.payload,
-        "",
-        storedDateKey,
-      ));
-    }
   }
 
   for (const endpoint of SIGN_ENDPOINTS) {
