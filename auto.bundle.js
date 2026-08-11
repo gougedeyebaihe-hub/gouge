@@ -4,7 +4,7 @@ const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812h";
+const SCRIPT_VERSION = "v20260812i";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -410,20 +410,32 @@ function summarizeStoredSignActionRequest(captured) {
 }
 
 function isSignInfoUrl(url) {
-  return String(url || "").toLowerCase().includes("/up/api/v1/user/sign/sign/info");
+  const normalized = String(url || "").toLowerCase();
+  return (
+    normalized.includes("/up/api/v1/user/sign/sign/info") ||
+    normalized.includes("/up/api/v1/user/sign/day/info")
+  );
 }
 
-function isSignActionUrl(url) {
+function isSignActionUrl(url, method) {
+  const normalizedMethod = String(method || "").toUpperCase();
+  if (normalizedMethod === "GET" || normalizedMethod === "OPTIONS") return false;
   const normalized = String(url || "").toLowerCase();
   return (
     normalized.includes("/up/api/v1/user/sign") &&
-    !normalized.includes("/sign/sign/info") &&
-    !normalized.includes("/sign/upgrade")
+    !isSignInfoUrl(normalized)
   );
 }
 
 function isSignUpgradeUrl(url) {
   return String(url || "").toLowerCase().includes("/up/api/v1/user/sign/upgrade");
+}
+
+function isSignActionCapture(captured) {
+  if (!captured) return false;
+  const path = String(captured.path || captured.url || "");
+  const method = String(captured.method || (path.match(/^\S+/) || [""])[0] || "");
+  return isSignActionUrl(path, method);
 }
 
 function isUsefulTaskUrl(url) {
@@ -1481,7 +1493,7 @@ function buildSignFailureDetails(endpoint, signRequest, signResult, error, store
   if (!status || status < 400) return base;
 
   const captured = readStoredSignActionRequest(store);
-  if (captured) {
+  if (captured && isSignActionCapture(captured)) {
     return "HTTP 403: " + summarizeStoredSignActionRequest(captured);
   }
 
@@ -1533,14 +1545,15 @@ async function runDailySignTask(input) {
   }
 
   const capturedRequest = readStoredSignActionRequest(input.store);
-  if (capturedRequest) {
+  const signActionRequest = isSignActionCapture(capturedRequest) ? capturedRequest : null;
+  if (signActionRequest) {
     try {
-      const replayResult = await replayCapturedSignRequest(input, capturedRequest);
+      const replayResult = await replayCapturedSignRequest(input, signActionRequest);
       if (replayResult && replayResult.ok) return { ok: true };
     } catch (error) {
       failures.push(
         "captured replay: " + error.message +
-        " | appCapture=" + summarizeStoredSignActionRequest(capturedRequest),
+        " | appCapture=" + summarizeStoredSignActionRequest(signActionRequest),
       );
     }
   }
@@ -1808,14 +1821,14 @@ async function runAutoCapture(options = {}) {
       }
     }
 
-    if (config.signRequestNotify && request && (isSignInfoUrl(tracedUrl) || isSignActionUrl(tracedUrl))) {
+    if (config.signRequestNotify && request && (isSignInfoUrl(tracedUrl) || isSignActionUrl(tracedUrl, traceMethod))) {
       notification.post(
         "Lynk & Co Sign Request",
         "",
         summarizeSignRequestHeaders(request),
       );
     }
-    if (request && isSignActionUrl(tracedUrl)) {
+    if (request && isSignActionUrl(tracedUrl, traceMethod)) {
       writeStoredSignActionRequest(store, request);
     }
     if (request && isSignUpgradeUrl(tracedUrl)) {
