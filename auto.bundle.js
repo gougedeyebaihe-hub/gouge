@@ -4,7 +4,7 @@ const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812d";
+const SCRIPT_VERSION = "v20260812e";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const SIGN_ENDPOINTS = [
@@ -190,12 +190,16 @@ function maskValue(value) {
   return text.slice(0, 4) + "..." + text.slice(-4);
 }
 
+function summarizeAuthorizationHeader(value) {
+  const text = String(value || "");
+  if (!text) return "no";
+  const parts = text.split(/\s+/);
+  return (parts[0] || "?") + ":" + maskValue(parts.slice(1).join(" "));
+}
+
 function summarizeSignRequestHeaders(request) {
   const headers = (request && request.headers) || {};
   const authorization = getHeader(headers, ["authorization"]) || "";
-  const authorizationSummary = authorization
-    ? String(authorization).split(/\s+/)[0] + ":" + maskValue(String(authorization).split(/\s+/).slice(1).join(" "))
-    : "no";
   const parts = [
     "xCaKey=" + (getHeader(headers, ["X-Ca-Key"]) || "missing"),
     "sig=" + maskValue(getHeader(headers, ["X-Ca-Signature"])),
@@ -204,7 +208,7 @@ function summarizeSignRequestHeaders(request) {
     "nonce=" + maskValue(getHeader(headers, ["X-Ca-Nonce"])),
     "token=" + (getHeader(headers, ["token"]) ? "yes" : "no"),
     "oauth=" + (getHeader(headers, ["oauthAccessToken", "oauth-access-token", "accessToken", "access-token"]) ? "yes" : "no"),
-    "auth=" + authorizationSummary,
+    "auth=" + summarizeAuthorizationHeader(authorization),
     "ct=" + compactContentType(getHeader(headers, ["Content-Type"])),
     "body=" + summarizeRequestBody(request),
     "headers=" + (listUsefulHeaderNames(headers).length ? listUsefulHeaderNames(headers).join("|") : "none"),
@@ -278,43 +282,59 @@ function summarizeSignUpgradeRequest(request) {
   ].join(" | ");
 }
 
-function writeStoredSignUpgradeRequest(store, request) {
-  if (!store || !request) return;
+function buildStoredCapturedSignRequest(request) {
   const headers = request.headers || {};
+  const authorization = String(getHeader(headers, ["authorization"]) || "");
+  const authorizationParts = authorization.split(/\s+/);
   const captured = {
     capturedAt: new Date().toISOString(),
     method: request.method || "",
+    url: request.url || "",
     path: buildTraceSummary(request.method, request.url),
     xCaKey: getHeader(headers, ["X-Ca-Key"]) || "",
     signatureHeaders: getHeader(headers, ["X-Ca-Signature-Headers"]) || "",
     contentType: compactContentType(getHeader(headers, ["Content-Type"])),
     hasToken: Boolean(getHeader(headers, ["token"])),
     hasOAuth: Boolean(getHeader(headers, ["oauthAccessToken", "oauth-access-token", "accessToken", "access-token"])),
-    hasAuthorization: Boolean(getHeader(headers, ["authorization"])),
+    hasAuthorization: Boolean(authorization),
+    authorizationPrefix: authorizationParts[0] || "",
+    authorizationValue: authorizationParts.slice(1).join(" "),
+    authorization,
+    body: request.body || "",
     bodyLength: requestBodyLength(request),
+    headers: request.headers || {},
     headerNames: listUsefulHeaderNames(headers),
   };
-  store.write(JSON.stringify(captured), SIGN_UPGRADE_REQUEST_KEY);
+  return captured;
+}
+
+function writeStoredSignUpgradeRequest(store, request) {
+  if (!store || !request) return;
+  store.write(JSON.stringify(buildStoredCapturedSignRequest(request)), SIGN_UPGRADE_REQUEST_KEY);
 }
 
 function writeStoredSignActionRequest(store, request) {
   if (!store || !request) return;
-  const headers = request.headers || {};
-  const captured = {
-    capturedAt: new Date().toISOString(),
-    method: request.method || "",
-    path: buildTraceSummary(request.method, request.url),
-    xCaKey: getHeader(headers, ["X-Ca-Key"]) || "",
-    signatureHeaders: getHeader(headers, ["X-Ca-Signature-Headers"]) || "",
-    contentType: compactContentType(getHeader(headers, ["Content-Type"])),
-    hasToken: Boolean(getHeader(headers, ["token"])),
-    hasOAuth: Boolean(getHeader(headers, ["oauthAccessToken", "oauth-access-token", "accessToken", "access-token"])),
-    hasAuthorization: Boolean(getHeader(headers, ["authorization"])),
-    authorizationPrefix: String(getHeader(headers, ["authorization"]) || "").split(/\s+/)[0],
-    body: summarizeRequestBody(request),
-    headerNames: listUsefulHeaderNames(headers),
-  };
-  store.write(JSON.stringify(captured), SIGN_UPGRADE_REQUEST_KEY);
+  store.write(JSON.stringify(buildStoredCapturedSignRequest(request)), SIGN_UPGRADE_REQUEST_KEY);
+}
+
+function readStoredSignActionRequest(store) {
+  if (!store) return null;
+  const parsed = parseJson(store.read(SIGN_UPGRADE_REQUEST_KEY));
+  return parsed && typeof parsed === "object" ? parsed : null;
+}
+
+function summarizeStoredSignActionRequest(captured) {
+  if (!captured) return "";
+  return [
+    "path=" + (captured.path || captured.url || "missing"),
+    "xCaKey=" + (captured.xCaKey || "missing"),
+    "auth=" + summarizeAuthorizationHeader(captured.authorization),
+    "token=" + (captured.hasToken ? "yes" : "no"),
+    "oauth=" + (captured.hasOAuth ? "yes" : "no"),
+    "body=" + (captured.body || "empty"),
+    "headers=" + (captured.headerNames && captured.headerNames.length ? captured.headerNames.join("|") : "none"),
+  ].join(",");
 }
 
 function isSignInfoUrl(url) {
@@ -1361,9 +1381,65 @@ function summarizeResults(signResult, shareResult, shareEnabled) {
   return summarizeTask("Sign", signResult) + " | " + summarizeTask("Share", shareResult);
 }
 
+function shortenFailure(failure) {
+  const text = String(failure || "");
+  return text.length > 160 ? text.slice(0, 157) + "..." : text;
+}
+
 function summarizeFailures(failures) {
-  const summary = failures.join(" | ") || "no sign endpoint succeeded";
-  return summary.length > 260 ? summary.slice(0, 257) + "..." : summary;
+  if (!failures.length) return "no sign endpoint succeeded";
+  const primaryIndex = failures.findIndex((item) => item.includes("HTTP 403"));
+  const primary = failures[primaryIndex >= 0 ? primaryIndex : 0];
+  const summary = [primary]
+    .concat(failures.filter((item) => item !== primary).slice(0, 2).map(shortenFailure))
+    .join(" || ");
+  return summary.length > 700 ? summary.slice(0, 697) + "..." : summary;
+}
+
+function buildSignFailureDetails(endpoint, signRequest, signResult, error, store) {
+  const base = endpoint.host + endpoint.uri + ": " + error.message;
+  const status = getHttpStatus(signResult && signResult.response);
+  if (!status || status < 400) return base;
+
+  const parts = [base];
+  const headers = signRequest && signRequest.headers;
+  if (headers) {
+    parts.push(
+      "reqAuth=" + summarizeAuthorizationHeader(getHeader(headers, ["authorization"])),
+      "xCaKey=" + (getHeader(headers, ["X-Ca-Key"]) || "missing"),
+      "token=" + (getHeader(headers, ["token"]) ? "yes" : "no"),
+      "body=" + summarizeRequestBody(signRequest),
+    );
+  }
+  if (signResult && signResult.data) {
+    parts.push("resp=" + summarizeBody(signResult.data));
+  }
+  const captured = readStoredSignActionRequest(store);
+  if (captured) {
+    parts.push("appCapture=" + summarizeStoredSignActionRequest(captured));
+  }
+  return parts.join(" | ");
+}
+
+async function replayCapturedSignRequest(input, capturedRequest) {
+  if (!capturedRequest || !capturedRequest.url || !capturedRequest.headers) return null;
+  const capturedAt = Date.parse(capturedRequest.capturedAt || "");
+  if (!capturedAt || Date.now() - capturedAt > 10 * 60 * 1000) return null;
+
+  const method = String(capturedRequest.method || "POST").toLowerCase();
+  const replayRequest = {
+    method: String(capturedRequest.method || "POST").toUpperCase(),
+    url: capturedRequest.url,
+    headers: capturedRequest.headers,
+    body: capturedRequest.body || "{}",
+  };
+  const replayResult = await requestAsync(input.httpClient, method, replayRequest);
+  const replayPayload = parseJson(replayResult.data);
+  if (isAlreadySignedMessage(getApiMessage(replayPayload)) || isAlreadySignedMessage(replayResult.data)) {
+    return { ok: true };
+  }
+  assertSuccessfulHttp(replayResult.response, "Sign replay", replayPayload, replayResult.data);
+  return { ok: true };
 }
 
 async function runDailySignTask(input) {
@@ -1376,26 +1452,55 @@ async function runDailySignTask(input) {
     if (storedState === "signed") return { ok: true };
   }
 
+  const capturedRequest = readStoredSignActionRequest(input.store);
+  if (capturedRequest) {
+    try {
+      const replayResult = await replayCapturedSignRequest(input, capturedRequest);
+      if (replayResult && replayResult.ok) return { ok: true };
+    } catch (error) {
+      failures.push(
+        "captured replay: " + error.message +
+        " | appCapture=" + summarizeStoredSignActionRequest(capturedRequest),
+      );
+    }
+  }
+
+  const signConfig = capturedRequest
+    ? Object.assign({}, input.config, {
+        xCaKey: capturedRequest.xCaKey || input.config.xCaKey,
+        appCode: capturedRequest.hasAuthorization === false ? "" : input.config.appCode,
+      })
+    : input.config;
+  const signTokenState = capturedRequest
+    ? Object.assign({}, input.tokenState, {
+        authorization: capturedRequest.hasAuthorization === false
+          ? ""
+          : (capturedRequest.authorization || input.tokenState.authorization),
+      })
+    : input.tokenState;
+
   for (const endpoint of SIGN_ENDPOINTS) {
+    let signRequest = null;
+    let signResult = null;
     try {
       const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
       const timestamp = String(Date.now());
       const signedContext = buildSignedDailySignContext({
-        config: input.config,
+        config: signConfig,
         endpoint,
         nonce,
         timestamp,
       });
-      const signature = await signBase64HmacSha256(input.config.appSecret, signedContext.signString);
-      const signRequest = buildDailySignRequest({
-        config: input.config,
+      const signature = await signBase64HmacSha256(signConfig.appSecret, signedContext.signString);
+      signRequest = buildDailySignRequest({
+        config: signConfig,
         endpoint,
-        tokenState: input.tokenState,
+        tokenState: signTokenState,
         nonce,
         timestamp,
         signature,
       });
-      const signResult = await requestAsync(input.httpClient, "post", signRequest);
+      signResult = await requestAsync(input.httpClient, "post", signRequest);
       const signPayload = parseJson(signResult.data);
       const apiMessage = getApiMessage(signPayload);
 
@@ -1423,7 +1528,7 @@ async function runDailySignTask(input) {
       }
       throw new Error("sign info did not confirm completion" + (responseSummary ? ": " + responseSummary : "."));
     } catch (error) {
-      failures.push(endpoint.host + endpoint.uri + ": " + error.message);
+      failures.push(buildSignFailureDetails(endpoint, signRequest, signResult, error, input.store));
     }
   }
 
