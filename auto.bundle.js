@@ -4,7 +4,7 @@ const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812c";
+const SCRIPT_VERSION = "v20260812d";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const SIGN_ENDPOINTS = [
@@ -192,6 +192,10 @@ function maskValue(value) {
 
 function summarizeSignRequestHeaders(request) {
   const headers = (request && request.headers) || {};
+  const authorization = getHeader(headers, ["authorization"]) || "";
+  const authorizationSummary = authorization
+    ? String(authorization).split(/\s+/)[0] + ":" + maskValue(String(authorization).split(/\s+/).slice(1).join(" "))
+    : "no";
   const parts = [
     "xCaKey=" + (getHeader(headers, ["X-Ca-Key"]) || "missing"),
     "sig=" + maskValue(getHeader(headers, ["X-Ca-Signature"])),
@@ -200,13 +204,23 @@ function summarizeSignRequestHeaders(request) {
     "nonce=" + maskValue(getHeader(headers, ["X-Ca-Nonce"])),
     "token=" + (getHeader(headers, ["token"]) ? "yes" : "no"),
     "oauth=" + (getHeader(headers, ["oauthAccessToken", "oauth-access-token", "accessToken", "access-token"]) ? "yes" : "no"),
-    "auth=" + (getHeader(headers, ["authorization"]) ? "yes" : "no"),
+    "auth=" + authorizationSummary,
+    "ct=" + compactContentType(getHeader(headers, ["Content-Type"])),
+    "body=" + summarizeRequestBody(request),
+    "headers=" + (listUsefulHeaderNames(headers).length ? listUsefulHeaderNames(headers).join("|") : "none"),
   ];
   return parts.join(", ");
 }
 
 function compactContentType(value) {
   return String(value || "missing").split(";")[0];
+}
+
+function summarizeRequestBody(request) {
+  const body = request && request.body;
+  if (!body) return "";
+  const text = (typeof body === "string" ? body : JSON.stringify(body)) || "";
+  return text.length > 140 ? text.slice(0, 137) + "..." : text;
 }
 
 function requestBodyLength(request) {
@@ -283,8 +297,37 @@ function writeStoredSignUpgradeRequest(store, request) {
   store.write(JSON.stringify(captured), SIGN_UPGRADE_REQUEST_KEY);
 }
 
+function writeStoredSignActionRequest(store, request) {
+  if (!store || !request) return;
+  const headers = request.headers || {};
+  const captured = {
+    capturedAt: new Date().toISOString(),
+    method: request.method || "",
+    path: buildTraceSummary(request.method, request.url),
+    xCaKey: getHeader(headers, ["X-Ca-Key"]) || "",
+    signatureHeaders: getHeader(headers, ["X-Ca-Signature-Headers"]) || "",
+    contentType: compactContentType(getHeader(headers, ["Content-Type"])),
+    hasToken: Boolean(getHeader(headers, ["token"])),
+    hasOAuth: Boolean(getHeader(headers, ["oauthAccessToken", "oauth-access-token", "accessToken", "access-token"])),
+    hasAuthorization: Boolean(getHeader(headers, ["authorization"])),
+    authorizationPrefix: String(getHeader(headers, ["authorization"]) || "").split(/\s+/)[0],
+    body: summarizeRequestBody(request),
+    headerNames: listUsefulHeaderNames(headers),
+  };
+  store.write(JSON.stringify(captured), SIGN_UPGRADE_REQUEST_KEY);
+}
+
 function isSignInfoUrl(url) {
   return String(url || "").toLowerCase().includes("/up/api/v1/user/sign/sign/info");
+}
+
+function isSignActionUrl(url) {
+  const normalized = String(url || "").toLowerCase();
+  return (
+    normalized.includes("/up/api/v1/user/sign") &&
+    !normalized.includes("/sign/sign/info") &&
+    !normalized.includes("/sign/upgrade")
+  );
 }
 
 function isSignUpgradeUrl(url) {
@@ -747,7 +790,7 @@ function buildAuthHeaders(tokenState, config) {
   return headers;
 }
 
-function buildSignAuthHeaders(tokenState) {
+function buildSignAuthHeaders(tokenState, config) {
   const headers = {};
   if (!tokenState) return headers;
 
@@ -757,8 +800,12 @@ function buildSignAuthHeaders(tokenState) {
   if (tokenState.oauthRefreshToken) headers.oauthRefreshToken = tokenState.oauthRefreshToken;
 
   const authorization = tokenState.authorization || "";
-  if (authorization && !String(authorization).toLowerCase().startsWith("appcode ")) {
+  if (authorization) {
     headers.authorization = authorization;
+  } else if (config && config.appCode) {
+    headers.authorization = "APPCODE " + config.appCode;
+  } else if (tokenState.oauthAccessToken) {
+    headers.authorization = "Bearer " + tokenState.oauthAccessToken;
   }
 
   return headers;
@@ -798,7 +845,7 @@ function buildDailySignRequest(input) {
   return {
     method: "POST",
     url: "https://" + input.endpoint.host + input.endpoint.uri,
-    headers: buildSignedHeaders(input, buildSignAuthHeaders(input.tokenState)),
+    headers: buildSignedHeaders(input, buildSignAuthHeaders(input.tokenState, input.config)),
     body: "{}",
   };
 }
@@ -1552,12 +1599,15 @@ async function runAutoCapture(options = {}) {
       }
     }
 
-    if (config.signRequestNotify && request && isSignInfoUrl(tracedUrl)) {
+    if (config.signRequestNotify && request && (isSignInfoUrl(tracedUrl) || isSignActionUrl(tracedUrl))) {
       notification.post(
         "Lynk & Co Sign Request",
         "",
         summarizeSignRequestHeaders(request),
       );
+    }
+    if (request && isSignActionUrl(tracedUrl)) {
+      writeStoredSignActionRequest(store, request);
     }
     if (request && isSignUpgradeUrl(tracedUrl)) {
       writeStoredSignUpgradeRequest(store, request);

@@ -47,7 +47,7 @@ Current script cache version:
 当前脚本缓存版本：
 
 ```text
-auto.bundle.js?v=20260812c
+auto.bundle.js?v=20260812d
 ```
 
 ## Repository Contents / 仓库内容
@@ -136,7 +136,7 @@ Meaning:
 - `pingNotify`: set to `1` to notify every script hit for debugging
 - `captureTraceNotify`: set to `1` to notify all matched Lynk & Co request URLs for tracing
 - `signTraceNotify`: set to `1` to notify the real sign-info response summary; default `0` still stores it silently
-- `signRequestNotify`: set to `1` to also notify masked sign request headers
+- `signRequestNotify`: set to `1` to also notify masked sign action/info request headers
 - `signCandidateNotify`: set to `1` to notify likely sign-action POST endpoints
 - `signUpgradeNotify`: set to `1` to notify masked real `/sign/upgrade` request details for sign-in diagnosis; default `0`
 
@@ -147,7 +147,7 @@ Meaning:
 - `pingNotify`：设为 `1` 后，每次脚本命中都会通知，用于调试
 - `captureTraceNotify`：设为 `1` 后，所有命中的领克接口都会通知 URL，便于定位真实签到接口
 - `signTraceNotify`：设为 `1` 后通知真实签到信息接口响应摘要；默认 `0` 也会静默保存状态
-- `signRequestNotify`：设为 `1` 后，额外通知打码后的签到请求头
+- `signRequestNotify`：设为 `1` 后，额外通知打码后的签到/签到信息请求头
 - `signCandidateNotify`：设为 `1` 后，通知疑似真正签到动作的 POST 接口
 - `signUpgradeNotify`：设为 `1` 后，命中真实 `/sign/upgrade` 时通知打码后的请求信息，用于排查自动签到；默认 `0`
 
@@ -168,13 +168,13 @@ Loon 中必须对这些精确域名开启并信任 MITM。确认签到接口后�
 ## Daily Use / 日常使用
 
 1. Update the remote plugin in Loon.
-2. Confirm the script URL contains `v=20260812c`.
+2. Confirm the script URL contains `v=20260812d`.
 3. Confirm MITM is enabled.
 4. Open Lynk & Co once during the day.
 5. Wait for `Sign: ok | Share: ok`.
 
 1. 在 Loon 中更新远程插件。
-2. 确认脚本 URL 包含 `v=20260812c`。
+2. 确认脚本 URL 包含 `v=20260812d`。
 3. 确认 MITM 已启用。
 4. 当天打开一次领克 App。
 5. 等待 `Sign: ok | Share: ok`。
@@ -199,12 +199,12 @@ If nothing happens:
 
 如果没有任何反应：
 
-1. Make sure the plugin is updated to `v=20260812c`.
+1. Make sure the plugin is updated to `v=20260812d`.
 2. Make sure MITM is enabled for `h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com`.
 3. Temporarily set `pingNotify=1` to confirm whether the script is being hit.
 4. Temporarily set `debugNotify=1` to confirm whether token state is captured.
 
-1. 确认插件已更新到 `v=20260812c`。
+1. 确认插件已更新到 `v=20260812d`。
 2. 确认 `h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com` 已开启 MITM。
 3. 临时把 `pingNotify=1`，确认脚本是否命中。
 4. 临时把 `debugNotify=1`，确认是否抓到 token 状态。
