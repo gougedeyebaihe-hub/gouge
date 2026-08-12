@@ -5,7 +5,7 @@ const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812l";
+const SCRIPT_VERSION = "v20260812m";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -313,6 +313,16 @@ function pickCapturedExtraHeaders(headers) {
   return extraHeaders;
 }
 
+function cleanShareExtraHeaders(headers) {
+  const cleaned = {};
+  Object.keys(headers || {}).forEach((name) => {
+    const normalized = normalizeHeaderName(name);
+    if (normalized.includes("authentication") || normalized.includes("aclapp")) return;
+    cleaned[name] = headers[name];
+  });
+  return cleaned;
+}
+
 function summarizeCapturedExtraHeaders(headers) {
   const extraHeaders = pickCapturedExtraHeaders(headers);
   return Object.keys(extraHeaders)
@@ -417,6 +427,11 @@ function writeStoredShareValidation(store, validation) {
     riskValidateInfo: validation.riskValidateInfo || "",
     source: validation.source || "captured",
   }), SHARE_VALIDATION_KEY);
+}
+
+function clearStoredShareValidation(store) {
+  if (!store) return;
+  store.write("", SHARE_VALIDATION_KEY);
 }
 
 function readStoredShareValidation(store) {
@@ -1733,6 +1748,11 @@ function isNeedShareValidationError(error) {
   return text.includes("share.need.validate.check") || text.includes("need.validate.check");
 }
 
+function isHttp403Error(error) {
+  const text = String((error && error.message) || error || "").toLowerCase();
+  return text.includes("http 403") || text.includes("403");
+}
+
 function getSecurityCertifyId(payload) {
   const data = payload && payload.data;
   return String((data && (data.certifyId || data.certify_id)) || "");
@@ -1836,24 +1856,45 @@ async function runShareTask(input) {
       store: input.store,
     };
     let shareCode = null;
-    let validationState = readStoredShareValidation(input.store) || null;
     try {
-      shareCode = await requestShareCode(shareTaskInput, validationState);
-    } catch (shareCodeError) {
-      if (!isNeedShareValidationError(shareCodeError)) throw shareCodeError;
-      let validation = null;
-      try {
-        validation = await fetchSecurityCertifyId(shareTaskInput);
-      } catch (validationError) {
-        // The manual capture path below still works if the security API is unavailable.
+      shareCode = await requestShareCode(shareTaskInput, null);
+    } catch (initialError) {
+      if (!isNeedShareValidationError(initialError)) throw initialError;
+
+      const storedValidation = readStoredShareValidation(input.store) || null;
+      if (storedValidation) {
+        try {
+          shareCode = await requestShareCode(shareTaskInput, storedValidation);
+        } catch (storedError) {
+          if (!isNeedShareValidationError(storedError) && !isHttp403Error(storedError)) throw storedError;
+          clearStoredShareValidation(input.store);
+        }
       }
-      if (!validation) {
-        throw new Error(
-          "Share code request failed: share.need.validate.check. Open Lynk & Co and share once, then retry.",
-        );
+
+      if (!shareCode) {
+        let validation = null;
+        try {
+          validation = await fetchSecurityCertifyId(shareTaskInput);
+        } catch (validationError) {
+          // The manual capture path below still works if the security API is unavailable.
+        }
+        if (!validation) {
+          throw new Error(
+            "Share code request failed: share.need.validate.check. Open Lynk & Co and share once, then retry.",
+          );
+        }
+        try {
+          shareCode = await requestShareCode(shareTaskInput, validation);
+        } catch (validationError) {
+          if (!isNeedShareValidationError(validationError) && !isHttp403Error(validationError)) {
+            throw validationError;
+          }
+          clearStoredShareValidation(input.store);
+          throw new Error(
+            "Share code request failed: share.need.validate.check. Open Lynk & Co and share once, then retry.",
+          );
+        }
       }
-      validationState = validation;
-      shareCode = await requestShareCode(shareTaskInput, validationState);
     }
 
     const shareReportingRequest = buildShareReportingRequest({
@@ -1902,7 +1943,7 @@ async function runDailyTasks(input) {
       })
     : tokenState;
   const shareExtraHeaders = capturedRequest
-    ? pickCapturedExtraHeaders(capturedRequest.headers)
+    ? cleanShareExtraHeaders(pickCapturedExtraHeaders(capturedRequest.headers))
     : {};
 
   if (tokenState.refreshToken) {
