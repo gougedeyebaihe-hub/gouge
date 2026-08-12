@@ -5,7 +5,7 @@ const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812m";
+const SCRIPT_VERSION = "v20260812n";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -1669,7 +1669,6 @@ async function runDailySignTask(input) {
     ? Object.assign({}, input.config, {
         xCaKey: capturedRequest.xCaKey || input.config.xCaKey,
         appSecret: resolveLynkAppSecret(capturedRequest.xCaKey || input.config.xCaKey),
-        appCode: capturedRequest.hasAuthorization === false ? "" : input.config.appCode,
       })
     : input.config;
   const signTokenState = capturedRequest
