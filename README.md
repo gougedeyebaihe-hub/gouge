@@ -26,7 +26,7 @@ Sign: ok | Share: ok
 在 Loon 中导入这个地址：
 
 ```text
-https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share.remote.plugin?v=20260812o
+https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share-v20260812o.remote.plugin?v=20260812o
 ```
 
 当前脚本缓存版本：
@@ -37,7 +37,8 @@ auto.bundle.js?v=20260812o
 
 ## 仓库内容
 
-- `lynkco-share.remote.plugin`：Loon 远程插件入口
+- `lynkco-share-v20260812o.remote.plugin`：当前推荐使用的 Loon 远程插件入口
+- `lynkco-share.remote.plugin`：兼容入口
 - `auto.bundle.js`：token 捕获和任务执行脚本
 - `README.md`：使用说明和排查方法
 
