@@ -5,7 +5,7 @@ const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812k";
+const SCRIPT_VERSION = "v20260812l";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -1032,8 +1032,6 @@ function buildGetShareCodeRequest(input) {
     use_security: "true",
     risk_type: "1",
     appVersion: "4.2.3",
-    Authentication: "AppId=59701c08ed454a43a9b",
-    "acl-app": "BUYER",
   }, buildAuthHeaders(input.tokenState, input.config), input.extraHeaders || {});
 
   if (input.validationState && input.validationState.certifyId) {
