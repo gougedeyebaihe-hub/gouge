@@ -5,7 +5,7 @@ const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812p";
+const SCRIPT_VERSION = "v20260812q";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -69,7 +69,7 @@ function buildShareConfig(input) {
     fallbackArticleId,
     shareContentURL: source.shareContentURL || (articleId ? buildShareUrl(articleId) : ""),
     shareContentType: source.shareContentType == null ? 1 : source.shareContentType,
-    shareEnabled: truthyFlag(source.shareEnabled, true),
+    shareEnabled: truthyFlag(source.shareEnabled, false),
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
     pingNotify: truthyFlag(source.pingNotify, false),
     debugNotify: truthyFlag(source.debugNotify, false),
@@ -225,6 +225,7 @@ function summarizeSignRequestHeaders(request) {
     "token=" + (getHeader(headers, ["token"]) ? "yes" : "no"),
     "oauth=" + (getHeader(headers, ["oauthAccessToken", "oauth-access-token", "accessToken", "access-token"]) ? "yes" : "no"),
     "auth=" + summarizeAuthorizationHeader(authorization),
+    "appCode=" + maskValue(getHeader(headers, ["x-ca-appcode", "x-ca-app-code"])),
     "ct=" + compactContentType(getHeader(headers, ["Content-Type"])),
     "body=" + summarizeRequestBody(request),
     "headers=" + (listUsefulHeaderNames(headers).length ? listUsefulHeaderNames(headers).join("|") : "none"),
