@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-当前版本：`v20260812n`
+当前版本：`v20260812o`
 
 本仓库托管领克 App 每日积分任务的 Loon 插件。
 
@@ -26,13 +26,13 @@ Sign: ok | Share: ok
 在 Loon 中导入这个地址：
 
 ```text
-https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share.remote.plugin?v=20260812n
+https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share.remote.plugin?v=20260812o
 ```
 
 当前脚本缓存版本：
 
 ```text
-auto.bundle.js?v=20260812n
+auto.bundle.js?v=20260812o
 ```
 
 ## 仓库内容
@@ -57,7 +57,7 @@ articleId=
 debugNotify=0
 shareEnabled=1
 autoRunOnCapture=1
-pingNotify=0
+pingNotify=1
 captureTraceNotify=0
 signTraceNotify=0
 signRequestNotify=0
@@ -89,7 +89,7 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com
 ## 日常使用
 
 1. 在 Loon 中更新远程插件。
-2. 确认脚本 URL 包含 `v=20260812n`。
+2. 确认脚本 URL 包含 `v=20260812o`。
 3. 确认 MITM 已启用。
 4. 当天打开一次领克 App。
 5. 等待 `Sign: ok | Share: ok`。
@@ -105,10 +105,10 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com
 
 如果没有通知：
 
-1. 确认插件已更新到 `v20260812n`。
+1. 确认插件已更新到 `v20260812o`。
 2. 确认匹配域名已开启 MITM。
-3. 临时设置 `pingNotify=1`。
-4. 临时设置 `debugNotify=1`。
+3. 当前版本默认 `pingNotify=1`，脚本命中时会通知。
+4. 打开领克 App，观察是否有 `Script hit` 通知。
 
 如果分享提示 `share.need.validate.check`：
 
@@ -118,6 +118,7 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com
 
 ## 版本记录
 
+- `v20260812o`：临时开启 `pingNotify=1`，用于确认 Loon 是否命中脚本。
 - `v20260812n`：签到请求恢复 APPCODE，修复 `Unauthorized Consumer`。
 - `v20260812m`：分享请求不再优先使用旧验证，收到 403 时会清除无效 `certifyId` 并重新走验证流程。
 - `v20260812l`：修复分享请求 403，移除导致网关拒绝的多余 App 默认请求头。
