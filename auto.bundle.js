@@ -5,7 +5,7 @@ const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812s";
+const SCRIPT_VERSION = "v20260812t";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -24,10 +24,8 @@ function resolveLynkAppSecret(xCaKey) {
 }
 
 const SIGN_ENDPOINTS = [
-  { host: "app-services.lynkco.com.cn", uri: "/up/api/v1/user/sign", mode: "action" },
   { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
   { host: "h5-api.lynkco.com", uri: "/up/api/v1/user/sign", mode: "action" },
-  { host: "app-services.lynkco.com.cn", uri: "/up/api/v1/user/sign/upgrade", mode: "action" },
   { host: "app-api-gw-toc.lynkco.com", uri: "/up/api/v1/user/sign/upgrade", mode: "action" },
   { host: "h5-api.lynkco.com", uri: "/up/api/v1/user/sign/upgrade", mode: "action" },
 ];
@@ -1019,25 +1017,16 @@ function buildRefreshTokenRequest(input) {
 }
 
 function buildDailySignRequest(input) {
-  const extraHeaders = buildSignExtraHeaders(input.config, input.extraHeaders);
   return {
     method: "POST",
     url: "https://" + input.endpoint.host + input.endpoint.uri,
     headers: buildSignedHeaders(
       input,
       buildSignAuthHeaders(input.tokenState, input.config),
-      extraHeaders,
+      input.extraHeaders,
     ),
     body: "{}",
   };
-}
-
-function buildSignExtraHeaders(config, extraHeaders) {
-  const headers = Object.assign({}, extraHeaders || {});
-  if (String(config.xCaKey || "") === "203760416") {
-    headers["x-ca-appcode"] = "SWGeelyCode";
-  }
-  return headers;
 }
 
 function buildGetShareCodeRequest(input) {
@@ -1681,6 +1670,7 @@ async function runDailySignTask(input) {
     ? Object.assign({}, input.config, {
         xCaKey: capturedRequest.xCaKey || input.config.xCaKey,
         appSecret: resolveLynkAppSecret(capturedRequest.xCaKey || input.config.xCaKey),
+        appCode: capturedRequest.hasAuthorization === false ? "" : input.config.appCode,
       })
     : input.config;
   const signTokenState = capturedRequest

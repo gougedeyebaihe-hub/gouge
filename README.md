@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-当前版本：`v20260812s`
+当前版本：`v20260812t`
 
 本仓库托管领克 App 每日积分任务的 Loon 插件。
 
@@ -10,7 +10,7 @@
 
 - 自动签到
 - 暂时暂停文章分享
-- 开启真实签到请求头通知，用于排查 `Unauthorized Consumer`
+- 恢复此前签到成功的请求组装逻辑
 
 预期成功通知：
 
@@ -23,13 +23,13 @@ Sign: ok
 在 Loon 中导入这个地址：
 
 ```text
-https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share-v20260812q.remote.plugin?v=20260812s
+https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share-v20260812q.remote.plugin?v=20260812t
 ```
 
 当前脚本缓存版本：
 
 ```text
-auto.bundle.js?v=20260812s&pingNotify=1&signRequestNotify=1&shareEnabled=0
+auto.bundle.js?v=20260812t&pingNotify=1&signRequestNotify=1&shareEnabled=0
 ```
 
 ## 仓库内容
@@ -85,7 +85,7 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.co
 
 ## 日常使用
 
-1. 在 Loon 中更新远程插件到 `v20260812s`。
+1. 在 Loon 中更新远程插件到 `v20260812t`。
 2. 确认 MITM 已启用，并包含 `app-services.lynkco.com.cn`。
 3. 当天打开一次领克 App。
 4. 等待 `Sign: ok`。
@@ -100,18 +100,13 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.co
 
 如果没有通知：
 
-1. 确认插件已更新到 `v20260812s`。
+1. 确认插件已更新到 `v20260812t`。
 2. 确认匹配域名已开启 MITM，特别是 `app-services.lynkco.com.cn`。
 3. 打开领克 App，观察是否有 `Script hit` 或 `Lynk & Co Sign Request` 通知。
 
-如果签到提示 `Unauthorized Consumer`：
-
-1. 打开领克 App，点击签到。
-2. 把 `Lynk & Co Sign Request` 通知内容发回。
-3. 重点看 `auth`、`appCode`、`xCaKey`、`sigHeaders`。
-
 ## 版本记录
 
+- `v20260812t`：恢复此前签到成功版本的请求组装逻辑，移除额外 APPCODE 和 `X-Ca-AppCode` 改动。
 - `v20260812s`：把调试参数直接写入脚本 URL，避免 Loon 未应用插件参数。
 - `v20260812r`：新增 `app-services.lynkco.com.cn` MITM 和签到重试，捕获当前 App 真实签到流量。
 - `v20260812q`：暂停文章分享，开启真实签到请求头通知。
