@@ -5,7 +5,7 @@ const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812w";
+const SCRIPT_VERSION = "v20260812x";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -2002,6 +2002,9 @@ async function runAutoCapture(options = {}) {
 
   try {
     if (!request && !response) {
+      if (config.pingNotify) {
+        notification.post("Lynk & Co Ping", "", "cron alive v" + SCRIPT_VERSION);
+      }
       const previousTokenState = parseTokenState(store.read(TOKEN_STATE_KEY));
       const now = new Date();
       const today = localDayKey(now);
