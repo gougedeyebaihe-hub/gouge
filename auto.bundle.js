@@ -5,7 +5,7 @@ const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812x";
+const SCRIPT_VERSION = "v20260812z";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -69,7 +69,7 @@ function buildShareConfig(input) {
     fallbackArticleId,
     shareContentURL: source.shareContentURL || (articleId ? buildShareUrl(articleId) : ""),
     shareContentType: source.shareContentType == null ? 1 : source.shareContentType,
-    shareEnabled: truthyFlag(source.shareEnabled, false),
+    shareEnabled: truthyFlag(source.shareEnabled, true),
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
     oncePerDay: truthyFlag(source.oncePerDay, false),
     pingNotify: truthyFlag(source.pingNotify, false),
