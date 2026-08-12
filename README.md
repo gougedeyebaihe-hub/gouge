@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-当前版本：`v20260812r`
+当前版本：`v20260812s`
 
 本仓库托管领克 App 每日积分任务的 Loon 插件。
 
@@ -23,18 +23,18 @@ Sign: ok
 在 Loon 中导入这个地址：
 
 ```text
-https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share-v20260812r.remote.plugin?v=20260812r
+https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share-v20260812q.remote.plugin?v=20260812s
 ```
 
 当前脚本缓存版本：
 
 ```text
-auto.bundle.js?v=20260812r
+auto.bundle.js?v=20260812s&pingNotify=1&signRequestNotify=1&shareEnabled=0
 ```
 
 ## 仓库内容
 
-- `lynkco-share-v20260812r.remote.plugin`：当前推荐使用的 Loon 远程插件入口
+- `lynkco-share-v20260812q.remote.plugin`：当前推荐使用的 Loon 远程插件入口
 - `lynkco-share.remote.plugin`：兼容入口
 - `auto.bundle.js`：token 捕获和任务执行脚本
 - `README.md`：使用说明和排查方法
@@ -85,11 +85,10 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.co
 
 ## 日常使用
 
-1. 在 Loon 中删除旧插件，导入 `v20260812r`。
-2. 确认脚本 URL 包含 `v=20260812r`。
-3. 确认 MITM 已启用，并包含 `app-services.lynkco.com.cn`。
-4. 当天打开一次领克 App。
-5. 等待 `Sign: ok`。
+1. 在 Loon 中更新远程插件到 `v20260812s`。
+2. 确认 MITM 已启用，并包含 `app-services.lynkco.com.cn`。
+3. 当天打开一次领克 App。
+4. 等待 `Sign: ok`。
 
 ## 已知限制
 
@@ -101,7 +100,7 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.co
 
 如果没有通知：
 
-1. 确认插件已更新到 `v20260812r`。
+1. 确认插件已更新到 `v20260812s`。
 2. 确认匹配域名已开启 MITM，特别是 `app-services.lynkco.com.cn`。
 3. 打开领克 App，观察是否有 `Script hit` 或 `Lynk & Co Sign Request` 通知。
 
@@ -113,6 +112,7 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.co
 
 ## 版本记录
 
+- `v20260812s`：把调试参数直接写入脚本 URL，避免 Loon 未应用插件参数。
 - `v20260812r`：新增 `app-services.lynkco.com.cn` MITM 和签到重试，捕获当前 App 真实签到流量。
 - `v20260812q`：暂停文章分享，开启真实签到请求头通知。
 - `v20260812p`：签到请求补充 `X-Ca-AppCode: SWGeelyCode`，尝试修复新网关 `Unauthorized Consumer`。
