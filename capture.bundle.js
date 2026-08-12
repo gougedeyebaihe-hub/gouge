@@ -1,6 +1,7 @@
-const SCRIPT_VERSION = "v20260813a";
+const SCRIPT_VERSION = "v20260813b";
 const CAPTURE_STATE_KEY = "lynkco.capture.state";
 const CAPTURE_LOG_KEY = "lynkco.capture.lastLog";
+const CAPTURE_HIT_LOG_KEY = "lynkco.capture.hitLog";
 
 const FIELD_ALIASES = {
   "refreshtoken": "refreshToken",
@@ -251,6 +252,25 @@ function runCapture(options = {}) {
   const done = options.done || $done;
   const config = parseArgumentString(argument);
   const state = buildCaptureState(request, response);
+
+  if (truthyFlag(config.captureHitNotify, false) && (request || response)) {
+    const hitNow = Date.now();
+    const hitLog = readJson(store, CAPTURE_HIT_LOG_KEY) || {};
+    const lastHitAt = Number(hitLog.lastAt || 0);
+    const minIntervalMs = Number(config.minNotifyIntervalMs || 60000);
+    if (hitNow - lastHitAt >= minIntervalMs) {
+      const hitUrl = (request && request.url) || (response && response.url) || "";
+      notification.post(
+        "Lynk & Co Capture Hit",
+        "",
+        (response ? "response" : "request") + " " + hitUrl,
+      );
+      writeJson(store, CAPTURE_HIT_LOG_KEY, {
+        lastAt: hitNow,
+        lastUrl: hitUrl,
+      });
+    }
+  }
 
   if (!hasCapturableFields(state)) {
     done({});

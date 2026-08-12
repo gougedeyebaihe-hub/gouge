@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-当前版本：`v20260813a`
+当前版本：`v20260813b`
 
 当前状态：
 
@@ -30,7 +30,7 @@ https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share-v20
 
 ```text
 auto.bundle.js?v=20260812z&oncePerDay=0&pingNotify=0&signRequestNotify=0&shareEnabled=1
-capture.bundle.js?v=20260813a&forceNotify=0&minNotifyIntervalMs=60000
+capture.bundle.js?v=20260813b&forceNotify=0&minNotifyIntervalMs=60000&captureHitNotify=1
 ```
 
 ## 仓库内容
@@ -50,12 +50,13 @@ capture.bundle.js?v=20260813a&forceNotify=0&minNotifyIntervalMs=60000
 
 ## 抓取数据
 
-1. 在 Loon 中把插件更新到 `v20260813a`。
+1. 在 Loon 中把插件更新到 `v20260813b`。
 2. 打开领克 App，进入登录、签到、个人中心等页面，制造真实请求。
-3. 收到 `Lynk & Co Capture` 通知后，通知内容是一段 JSON。
-4. 从 JSON 中读取 `refreshToken`、`deviceId`、`token` 等字段，用于后续 Windows 端脚本。
+3. 先收到 `Lynk & Co Capture Hit`，表示 Loon 已经命中领克请求。
+4. 收到 `Lynk & Co Capture` 后，通知内容是一段 JSON。
+5. 从 JSON 中读取 `refreshToken`、`deviceId`、`token` 等字段，用于后续 Windows 端脚本。
 
-如果收不到抓取通知，先确认插件版本是 `v20260813a`，再确认 Loon 的 MITM 已开启且证书受信任。
+如果连 `Lynk & Co Capture Hit` 都没有，先确认插件版本是 `v20260813b`，再确认 Loon 的 MITM 已开启且证书受信任。
 
 ## Loon 参数
 
@@ -73,6 +74,7 @@ signCandidateNotify=0
 signUpgradeNotify=0
 forceNotify=0
 minNotifyIntervalMs=60000
+captureHitNotify=1
 ```
 
 | 参数 | 含义 |
@@ -90,6 +92,7 @@ minNotifyIntervalMs=60000
 | `signUpgradeNotify` | 调试用，通知 `/sign/upgrade` 请求详情 |
 | `forceNotify` | 当前为 `0`，只在认证状态变化时发送抓取通知 |
 | `minNotifyIntervalMs` | 抓取通知最短间隔，当前为 60000 毫秒 |
+| `captureHitNotify` | 当前为 `1`，命中领克请求时发送调试通知 |
 
 ## 匹配域名
 
@@ -101,7 +104,7 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.co
 
 ## 日常使用
 
-1. 在 Loon 中更新远程插件到 `v20260813a`。
+1. 在 Loon 中更新远程插件到 `v20260813b`。
 2. 打开领克 App。
 3. 查看 `Sign: ok | Share: ok`、失败通知，或 `Lynk & Co Capture` 抓取通知。
 
@@ -113,6 +116,7 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.co
 
 ## 版本记录
 
+- `v20260813b`：新增命中通知 `Lynk & Co Capture Hit`，用于确认 Loon 是否真的执行了抓取脚本。
 - `v20260813a`：新增独立抓取脚本，自动保存并通知 `refreshToken`、`deviceId`、`token` 等认证字段。
 - `v20260812x`：每 5 分钟发送脚本存活通知，用于确认 Loon 是否加载插件。
 - `v20260812w`：恢复文章分享，保留现有分享验证流程。
