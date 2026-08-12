@@ -1,14 +1,16 @@
 const TOKEN_STATE_KEY = "lynkco.share.tokenState";
 const LAST_SIGN_INFO_KEY = "lynkco.share.lastSignInfo";
 const SIGN_UPGRADE_REQUEST_KEY = "lynkco.share.signUpgradeRequest";
+const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812j";
+const SCRIPT_VERSION = "v20260812k";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
 const DEFAULT_LYNK_CO_APP_SECRET = "QCl7udM3PB9cOIOwquwPglikFQnzJRsX";
+const SECURITY_TENANT_ID = "569001643002";
 const LYNK_CO_APP_SECRETS = {
   "203760416": "e1msl9aqd101gfcjpo873hrs5jg752og",
   "204644386": "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
@@ -394,6 +396,59 @@ function readStoredSignActionRequest(store) {
   if (!store) return null;
   const parsed = parseJson(store.read(SIGN_UPGRADE_REQUEST_KEY));
   return parsed && typeof parsed === "object" ? parsed : null;
+}
+
+function parseStoredShareValidation(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.certifyId ? parsed : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeStoredShareValidation(store, validation) {
+  if (!store || !validation || !validation.certifyId) return;
+  store.write(JSON.stringify({
+    capturedAt: validation.capturedAt || new Date().toISOString(),
+    certifyId: validation.certifyId,
+    challenge: validation.challenge || "",
+    riskValidateInfo: validation.riskValidateInfo || "",
+    source: validation.source || "captured",
+  }), SHARE_VALIDATION_KEY);
+}
+
+function readStoredShareValidation(store) {
+  if (!store) return null;
+  return parseStoredShareValidation(store.read(SHARE_VALIDATION_KEY));
+}
+
+function extractShareValidationFromRequest(request) {
+  if (!request || !String(request.url || "").toLowerCase().includes("/app/v1/task/getsharecode")) return null;
+  const headers = request.headers || {};
+  const certifyId = getHeader(headers, ["certifyId", "certify-id"]);
+  if (!certifyId) return null;
+  return {
+    capturedAt: new Date().toISOString(),
+    certifyId,
+    challenge: getHeader(headers, ["challenge"]),
+    riskValidateInfo: getHeader(headers, ["risk_validate_info"]),
+    source: "captured",
+  };
+}
+
+function extractShareValidationFromSecurityConfigPayload(payload) {
+  const data = payload && payload.data;
+  const certifyId = data && (data.certifyId || data.certify_id);
+  if (!certifyId) return null;
+  return {
+    capturedAt: new Date().toISOString(),
+    certifyId: String(certifyId),
+    challenge: "",
+    riskValidateInfo: "",
+    source: "security-config",
+  };
 }
 
 function summarizeStoredSignActionRequest(captured) {
@@ -964,25 +1019,35 @@ function buildGetShareCodeRequest(input) {
     shareContentType: input.config.shareContentType,
     shareContentURL: input.config.shareContentURL,
   });
+  const headers = Object.assign({
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
+    "Content-Type": "application/json",
+    Accept: "*/*",
+    "X-Ca-Key": input.config.xCaKey,
+    "X-Ca-Nonce": input.nonce,
+    "X-Ca-Timestamp": input.timestamp,
+    "X-Ca-Signature": input.signature,
+    "X-Ca-Signature-Method": "HmacSHA256",
+    "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
+    use_security: "true",
+    risk_type: "1",
+    appVersion: "4.2.3",
+    Authentication: "AppId=59701c08ed454a43a9b",
+    "acl-app": "BUYER",
+  }, buildAuthHeaders(input.tokenState, input.config), input.extraHeaders || {});
+
+  if (input.validationState && input.validationState.certifyId) {
+    headers.risk_validate_info = riskRequestInfo;
+    headers.certifyId = input.validationState.certifyId;
+    if (input.validationState.challenge) headers.challenge = input.validationState.challenge;
+  } else {
+    headers.risk_request_info = riskRequestInfo;
+  }
 
   return {
     method: "GET",
     url: "https://h5-api.lynkco.com/app/v1/task/getShareCode",
-    headers: Object.assign({
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 x-cordova-platform/ios cordova-6",
-      "Content-Type": "application/json",
-      Accept: "*/*",
-      "X-Ca-Key": input.config.xCaKey,
-      "X-Ca-Nonce": input.nonce,
-      "X-Ca-Timestamp": input.timestamp,
-      "X-Ca-Signature": input.signature,
-      "X-Ca-Signature-Method": "HmacSHA256",
-      "X-Ca-Signature-Headers": "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method",
-      risk_request_info: riskRequestInfo,
-      use_security: "true",
-      risk_type: "1",
-      appVersion: "4.2.3",
-    }, buildAuthHeaders(input.tokenState, input.config), input.extraHeaders || {}),
+    headers,
   };
 }
 
@@ -1047,6 +1112,35 @@ function buildSignedShareCodeContext(input) {
       xCaTimestamp: input.timestamp,
     }),
   };
+}
+
+function buildSecurityConfigContext(input) {
+  const uri = "/auth/v1/security/config?type=GEE_TEST_V4";
+  return {
+    signString: buildSignString({
+      method: "GET",
+      uri,
+      xCaKey: input.config.xCaKey,
+      xCaNonce: input.nonce,
+      xCaTimestamp: input.timestamp,
+    }),
+  };
+}
+
+function buildSecurityConfigRequest(input) {
+  return buildSignedGetRequest({
+    config: input.config,
+    tokenState: input.tokenState,
+    nonce: input.nonce,
+    timestamp: input.timestamp,
+    signature: input.signature,
+    url: "https://" + input.host + "/auth/v1/security/config?type=GEE_TEST_V4",
+    extraHeaders: Object.assign({
+      tenantId: SECURITY_TENANT_ID,
+      Authentication: "AppId=59701c08ed454a43a9b",
+      "acl-app": "BUYER",
+    }, input.extraHeaders || {}),
+  });
 }
 
 function buildSignedInformationConfigContext(input) {
@@ -1636,6 +1730,99 @@ async function runDailySignTask(input) {
   };
 }
 
+function isNeedShareValidationError(error) {
+  const text = String((error && error.message) || error || "").toLowerCase();
+  return text.includes("share.need.validate.check") || text.includes("need.validate.check");
+}
+
+function getSecurityCertifyId(payload) {
+  const data = payload && payload.data;
+  return String((data && (data.certifyId || data.certify_id)) || "");
+}
+
+async function fetchSecurityCertifyId(input) {
+  const hosts = [
+    "h5-api.lynkco.com",
+    "app-api-gw-toc.lynkco.com",
+    "app-services.lynkco.com.cn",
+  ];
+  let lastError = null;
+
+  for (const host of hosts) {
+    try {
+      const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
+      const timestamp = String(Date.now());
+      const context = buildSecurityConfigContext({
+        config: input.config,
+        nonce,
+        timestamp,
+      });
+      const signature = await signBase64HmacSha256(input.config.appSecret, context.signString);
+      const securityRequest = buildSecurityConfigRequest({
+        config: input.config,
+        tokenState: input.tokenState,
+        nonce,
+        timestamp,
+        signature,
+        host,
+        extraHeaders: input.extraHeaders,
+      });
+      const securityResult = await requestAsync(input.httpClient, "get", securityRequest);
+      const securityPayload = parseJson(securityResult.data);
+      assertSuccessfulHttp(
+        securityResult.response,
+        "Security config",
+        securityPayload,
+        securityResult.data,
+      );
+
+      const certifyId = getSecurityCertifyId(securityPayload);
+      if (!certifyId) return null;
+      const validation = {
+        capturedAt: new Date().toISOString(),
+        certifyId,
+        challenge: "",
+        riskValidateInfo: "",
+        source: "security-config",
+      };
+      writeStoredShareValidation(input.store, validation);
+      return validation;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) throw lastError;
+  return null;
+}
+
+async function requestShareCode(input, validationState) {
+  const now = new Date();
+  const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
+  const timestamp = String(now.getTime());
+  const openTimeStamp = formatRiskOpenTime(now);
+  const signedContext = buildSignedShareCodeContext({
+    config: input.config,
+    nonce,
+    timestamp,
+  });
+  const signature = await signBase64HmacSha256(input.config.appSecret, signedContext.signString);
+  const shareCodeRequest = buildGetShareCodeRequest({
+    config: input.config,
+    tokenState: input.tokenState,
+    nonce,
+    timestamp,
+    signature,
+    openTimeStamp,
+    validationState,
+    extraHeaders: input.extraHeaders,
+  });
+  const shareCodeResult = await requestAsync(input.httpClient, "get", shareCodeRequest);
+  const shareCodePayload = parseJson(shareCodeResult.data);
+  assertSuccessfulHttp(shareCodeResult.response, "Share code", shareCodePayload, shareCodeResult.data);
+  return getShareCode(shareCodePayload);
+}
+
 async function runShareTask(input) {
   try {
     const resolvedArticle = await resolveShareArticle(input);
@@ -1643,25 +1830,33 @@ async function runShareTask(input) {
       articleId: resolvedArticle.articleId,
       shareContentURL: resolvedArticle.shareContentURL,
     });
-    const now = new Date();
-    const nonce = createNonceFromBytes(Array.from(getRandomBytes(16)));
-    const timestamp = String(now.getTime());
-    const openTimeStamp = formatRiskOpenTime(now);
-    const signedContext = buildSignedShareCodeContext({ config: shareConfig, nonce, timestamp });
-    const signature = await signBase64HmacSha256(shareConfig.appSecret, signedContext.signString);
-
-    const shareCodeRequest = buildGetShareCodeRequest({
+    const shareTaskInput = {
       config: shareConfig,
       tokenState: input.tokenState,
-      nonce,
-      timestamp,
-      signature,
-      openTimeStamp,
-    });
-    const shareCodeResult = await requestAsync(input.httpClient, "get", shareCodeRequest);
-    const shareCodePayload = parseJson(shareCodeResult.data);
-    assertSuccessfulHttp(shareCodeResult.response, "Share code", shareCodePayload, shareCodeResult.data);
-    const shareCode = getShareCode(shareCodePayload);
+      extraHeaders: input.extraHeaders || {},
+      httpClient: input.httpClient,
+      store: input.store,
+    };
+    let shareCode = null;
+    let validationState = readStoredShareValidation(input.store) || null;
+    try {
+      shareCode = await requestShareCode(shareTaskInput, validationState);
+    } catch (shareCodeError) {
+      if (!isNeedShareValidationError(shareCodeError)) throw shareCodeError;
+      let validation = null;
+      try {
+        validation = await fetchSecurityCertifyId(shareTaskInput);
+      } catch (validationError) {
+        // The manual capture path below still works if the security API is unavailable.
+      }
+      if (!validation) {
+        throw new Error(
+          "Share code request failed: share.need.validate.check. Open Lynk & Co and share once, then retry.",
+        );
+      }
+      validationState = validation;
+      shareCode = await requestShareCode(shareTaskInput, validationState);
+    }
 
     const shareReportingRequest = buildShareReportingRequest({
       config: shareConfig,
@@ -1745,6 +1940,7 @@ async function runDailyTasks(input) {
       tokenState: shareTokenState,
       extraHeaders: shareExtraHeaders,
       httpClient: input.httpClient,
+      store: input.store,
     });
   }
 
@@ -1893,6 +2089,19 @@ async function runAutoCapture(options = {}) {
           "Captured Lynk & Co auth state: " + summarizeCapturedFields(tokenState).join(", ") + ".",
         );
       }
+    }
+
+    const capturedShareValidation =
+      extractShareValidationFromRequest(request) ||
+      (
+        response &&
+        response.body &&
+        String(tracedUrl).toLowerCase().includes("/auth/v1/security/config")
+          ? extractShareValidationFromSecurityConfigPayload(parseJson(response.body))
+          : null
+      );
+    if (capturedShareValidation) {
+      writeStoredShareValidation(store, capturedShareValidation);
     }
 
     const now = new Date();
