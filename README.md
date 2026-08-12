@@ -2,15 +2,14 @@
 
 ## 当前状态
 
-当前版本：`v20260812t`
+当前版本：`v20260812v`
 
-本仓库托管领克 App 每日积分任务的 Loon 插件。
-
-当前重点：
+当前为测试模式：
 
 - 自动签到
 - 暂时暂停文章分享
-- 恢复此前签到成功的请求组装逻辑
+- 已关闭每天只跑一次的限制
+- 保留短时运行锁，避免连续重复请求
 
 预期成功通知：
 
@@ -23,13 +22,13 @@ Sign: ok
 在 Loon 中导入这个地址：
 
 ```text
-https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share-v20260812q.remote.plugin?v=20260812t
+https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share-v20260812q.remote.plugin?v=20260812v
 ```
 
 当前脚本缓存版本：
 
 ```text
-auto.bundle.js?v=20260812t&pingNotify=1&signRequestNotify=1&shareEnabled=0
+auto.bundle.js?v=20260812v&oncePerDay=0&pingNotify=0&signRequestNotify=0&shareEnabled=0
 ```
 
 ## 仓库内容
@@ -44,8 +43,8 @@ auto.bundle.js?v=20260812t&pingNotify=1&signRequestNotify=1&shareEnabled=0
 1. 每 30 分钟执行一次 cron，读取已保存的认证状态。
 2. `http-request` 和 `http-response` 捕获领克流量。
 3. 保存到有效 token 后自动执行签到。
-4. 文章分享已暂停，避免触发验证码。
-5. 最后只发送一条签到结果通知。
+4. 当前已关闭每天只跑一次限制，方便测试。
+5. 每次成功或失败会发送签到结果通知。
 
 ## Loon 参数
 
@@ -54,10 +53,11 @@ articleId=
 debugNotify=0
 shareEnabled=0
 autoRunOnCapture=1
-pingNotify=1
+oncePerDay=0
+pingNotify=0
 captureTraceNotify=0
 signTraceNotify=0
-signRequestNotify=1
+signRequestNotify=0
 signCandidateNotify=0
 signUpgradeNotify=0
 ```
@@ -68,10 +68,11 @@ signUpgradeNotify=0
 | `debugNotify` | 抓到认证状态时通知 |
 | `shareEnabled` | 当前为 `0`，文章分享暂停 |
 | `autoRunOnCapture` | 设为 `0` 关闭捕获后自动执行 |
+| `oncePerDay` | 当前为 `0`，关闭每天只跑一次限制 |
 | `pingNotify` | 调试用，每次脚本命中都通知 |
 | `captureTraceNotify` | 调试用，通知所有命中接口 URL |
 | `signTraceNotify` | 调试用，通知签到信息接口摘要 |
-| `signRequestNotify` | 当前为 `1`，通知真实签到请求头摘要 |
+| `signRequestNotify` | 调试用，通知真实签到请求头摘要 |
 | `signCandidateNotify` | 调试用，通知疑似签到 POST 接口 |
 | `signUpgradeNotify` | 调试用，通知 `/sign/upgrade` 请求详情 |
 
@@ -85,27 +86,21 @@ h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.co
 
 ## 日常使用
 
-1. 在 Loon 中更新远程插件到 `v20260812t`。
-2. 确认 MITM 已启用，并包含 `app-services.lynkco.com.cn`。
-3. 当天打开一次领克 App。
-4. 等待 `Sign: ok`。
+1. 在 Loon 中更新远程插件到 `v20260812v`。
+2. 确认 MITM 已启用。
+3. 打开领克 App。
+4. 查看每次签到尝试的 `Sign: ok` 或失败通知。
 
 ## 已知限制
 
 - Loon 无法在 iOS 上自动打开领克或点击按钮。
 - 插件至少需要捕获过一次有效 token。
 - 当前文章分享暂停，避免触发验证码。
-
-## 排查
-
-如果没有通知：
-
-1. 确认插件已更新到 `v20260812t`。
-2. 确认匹配域名已开启 MITM，特别是 `app-services.lynkco.com.cn`。
-3. 打开领克 App，观察是否有 `Script hit` 或 `Lynk & Co Sign Request` 通知。
+- 测试模式没有每天只跑一次限制，正式使用时需恢复 `oncePerDay=1`。
 
 ## 版本记录
 
+- `v20260812v`：关闭每天只跑一次限制，进入测试模式。
 - `v20260812t`：恢复此前签到成功版本的请求组装逻辑，移除额外 APPCODE 和 `X-Ca-AppCode` 改动。
 - `v20260812s`：把调试参数直接写入脚本 URL，避免 Loon 未应用插件参数。
 - `v20260812r`：新增 `app-services.lynkco.com.cn` MITM 和签到重试，捕获当前 App 真实签到流量。

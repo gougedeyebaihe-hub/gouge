@@ -5,7 +5,7 @@ const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 const AUTO_TRIGGER_KEY = "lynkco.share.autoTrigger";
 const AUTO_RUN_STATE_KEY = "lynkco.share.autoRunState";
 const AUTO_RUN_LOCK_KEY = "lynkco.share.autoRunLock";
-const SCRIPT_VERSION = "v20260812t";
+const SCRIPT_VERSION = "v20260812v";
 const DEFAULT_FALLBACK_ARTICLE_ID = "1881101031748870144";
 const AUTO_LOCK_TTL_MS = 600000;
 const DEFAULT_LYNK_CO_XCA_KEY = "204644386";
@@ -71,6 +71,7 @@ function buildShareConfig(input) {
     shareContentType: source.shareContentType == null ? 1 : source.shareContentType,
     shareEnabled: truthyFlag(source.shareEnabled, false),
     autoRunOnCapture: truthyFlag(source.autoRunOnCapture, true),
+    oncePerDay: truthyFlag(source.oncePerDay, false),
     pingNotify: truthyFlag(source.pingNotify, false),
     debugNotify: truthyFlag(source.debugNotify, false),
     captureTraceNotify: truthyFlag(source.captureTraceNotify, false),
@@ -692,15 +693,17 @@ function shouldStartAutoRun(input) {
   const today = localDayKey(input.now);
   const state = parseAutoRunState(input.store.read(AUTO_RUN_STATE_KEY));
   const stateMatchesVersion = state.scriptVersion === SCRIPT_VERSION;
-  if (input.triggerMode === "cron" && stateMatchesVersion && state.lastRunDate === today && state.lastResult) {
-    return { ok: false, reason: "already attempted today" };
-  }
-  if (
-    stateMatchesVersion &&
-    state.lastRunDate === today &&
-    isSuccessfulAutoRunSummary(state.lastResult, input.config.shareEnabled)
-  ) {
-    return { ok: false, reason: "already completed today" };
+  if (input.config.oncePerDay) {
+    if (input.triggerMode === "cron" && stateMatchesVersion && state.lastRunDate === today && state.lastResult) {
+      return { ok: false, reason: "already attempted today" };
+    }
+    if (
+      stateMatchesVersion &&
+      state.lastRunDate === today &&
+      isSuccessfulAutoRunSummary(state.lastResult, input.config.shareEnabled)
+    ) {
+      return { ok: false, reason: "already completed today" };
+    }
   }
   const lock = parseAutoRunLock(input.store.read(AUTO_RUN_LOCK_KEY));
   if (lock.date === today && input.now.getTime() - lock.startedAt < AUTO_LOCK_TTL_MS) {
