@@ -283,23 +283,15 @@ async function testFullFlow() {
         data: JSON.stringify({ code: "success", data: { signStatus: 1 } }),
       }),
     },
-    // 文章配置
+    // 广场文章列表（square/index2）
     {
-      match: (method, url) => method === "get" && url.includes("/app/explore/home-page/config/pccid/get"),
+      match: (method, url) => method === "post" && url.includes("/app/explore/home-page/square/index2"),
       respond: () => ({
         data: JSON.stringify({
           code: "success",
-          data: [{ cptCode: "1009", pccId: "pcc-1" }],
-        }),
-      }),
-    },
-    // 文章列表
-    {
-      match: (method, url) => method === "get" && url.includes("/app/explore/home-page/article"),
-      respond: () => ({
-        data: JSON.stringify({
-          code: "success",
-          data: [{ data: { id: FIXED_ARTICLE_ID } }],
+          data: {
+            userByteDynamicsResponseDTOS: [{ dynamicId: FIXED_ARTICLE_ID, contentType: "1" }],
+          },
         }),
       }),
     },

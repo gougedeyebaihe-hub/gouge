@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260813-refactor2
+ * v20260813-refactor3
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -1297,45 +1297,39 @@ async function postShareReporting(context, shareCode) {
 
 /* ---------------- 文章 ---------------- */
 
-/** 获取资讯页配置（拿 pccId） */
-async function getInformationPccId(context) {
-  const result = await h5Request(context, {
-    method: "GET",
-    host: H5_API_HOST,
-    uri: "/app/explore/home-page/config/pccid/get?pageCode=LYNKCO_APP_1028",
-    label: "Info config",
-  });
-  const items = result.payload && result.payload.data;
-  if (!Array.isArray(items)) throw new Error("Info config response is not valid.");
-  const contentPosition = items.find((item) => item && String(item.cptCode || "") === "1009" && item.pccId);
-  if (!contentPosition) throw new Error("Info content position was not found.");
-  return String(contentPosition.pccId);
-}
-
-/** 获取资讯文章列表，返回第一篇的 articleId */
+/**
+ * 获取广场第一篇文章/动态的 id。
+ * 旧接口（config/pccid/get + article?articlePccId=）已下线（App 更新后返回
+ * "网络开小差"），当前有效的是 POST /app/explore/home-page/square/index2，
+ * 文章/动态列表在 data.userByteDynamicsResponseDTOS（每项含 dynamicId）。
+ */
 async function getFirstArticle(context) {
-  const pccId = await getInformationPccId(context);
   const result = await h5Request(context, {
-    method: "GET",
+    method: "POST",
     host: H5_API_HOST,
-    uri: "/app/explore/home-page/article?articlePccId=" + encodeURIComponent(pccId),
-    label: "Info articles",
+    uri: "/app/explore/home-page/square/index2",
+    body: JSON.stringify({
+      dynamicSort: "new",
+      uniqueId: "",
+      refreshType: "MORE",
+      pageNo: 1,
+    }),
+    label: "Square articles",
   });
-  const items = result.payload && result.payload.data;
-  if (!Array.isArray(items) || items.length === 0) throw new Error("Info article list is empty.");
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i];
-    if (!item || typeof item !== "object") continue;
-    const candidates = [item.data && item.data.data, item.data, item];
-    for (let j = 0; j < candidates.length; j += 1) {
-      const candidate = candidates[j];
-      if (!candidate || typeof candidate !== "object") continue;
-      const articleId = candidate.id || candidate.articleId || candidate.contentId;
-      if (!articleId) continue;
-      return String(articleId);
-    }
+  const data = result.payload && result.payload.data;
+  if (!data || typeof data !== "object") throw new Error("Square response is not valid.");
+  const dynamics = data.userByteDynamicsResponseDTOS;
+  if (!Array.isArray(dynamics) || dynamics.length === 0) {
+    throw new Error("Square article list is empty.");
   }
-  throw new Error("Info article list does not include a usable article id.");
+  for (let i = 0; i < dynamics.length; i += 1) {
+    const item = dynamics[i];
+    if (!item || typeof item !== "object") continue;
+    const articleId = item.dynamicId || item.id || item.articleId || item.contentId;
+    if (!articleId) continue;
+    return String(articleId);
+  }
+  throw new Error("Square article list does not include a usable article id.");
 }
 
 

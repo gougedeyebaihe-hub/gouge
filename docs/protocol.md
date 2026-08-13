@@ -84,11 +84,10 @@ application/json
 ### 分享
 | 接口 | 方法 | 签名 | 说明 |
 | --- | --- | --- | --- |
-| `/app/explore/home-page/config/pccid/get?pageCode=LYNKCO_APP_1028` | GET | H5 | 取资讯页 `pccId`（`cptCode=1009`） |
-| `/app/explore/home-page/article?articlePccId=..` | GET | H5 | 文章列表，取第一篇 `id` |
+| `/app/explore/home-page/square/index2` | POST | H5（body 不参与签名） | **取文章/动态**（当前有效）：body `{"dynamicSort":"new","uniqueId":"","refreshType":"MORE","pageNo":1}`，列表在 `data.userByteDynamicsResponseDTOS`（每项含 `dynamicId`）。旧接口 `config/pccid/get` + `article?articlePccId=` 已下线 |
 | `/app/v1/task/getShareCode` | GET | 原生 SDK | 风控头：`use_security:true`、`risk_type:1`、`appVersion`、`risk_request_info`（或验证后 `certifyId/challenge/risk_validate_info`） |
 | `/app/v1/task/shareReporting?shareCode=..` | POST | H5 | body `{businessNo: 文章id, eventData:{firstClassification:"文章"}}`，`Origin: https://h5.lynkco.com` |
-| `/app/energy/myEnergy` | GET | H5 | 积分 `data.point`；**分享是否真加分以此对比为准**（接口返回 success 不可信） |
+| `/app/energy/myEnergy` | GET | H5 | 积分 `data.point`（字符串）；**分享加分机制**：分享动作完成 + 他人（或自己）当日浏览分享链接 → +5 积分。动作成功与加分是两回事 |
 
 ### 分享验证（certifyId）流程
 1. `getShareCode` 返回 `share.need.validate.check` 时需要人机验证。

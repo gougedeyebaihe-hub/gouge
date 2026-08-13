@@ -152,6 +152,28 @@ async function main() {
   } else {
     console.log("\n（只读验证完成，未执行签到。加 --sign 可执行签到）");
   }
+
+  if (args.includes("--share")) {
+    console.log("\n== 5) 分享流程（原生签名 getShareCode + H5 签名 shareReporting） ==");
+    const report = {};
+    const storeMock = { read: () => "", write: () => {} };
+    const shareContext = {
+      config: lib.buildConfig("debug=1"),
+      tokenState: context.tokenState,
+      httpClient,
+      store: storeMock,
+      notification: null,
+      now: new Date(),
+    };
+    try {
+      const result = await lib.runShareTask(shareContext, report);
+      console.log("   result=" + JSON.stringify(result));
+      if (result.shareUrl) console.log("   分享链接: " + result.shareUrl);
+      console.log("   energy: " + report.energyBefore + " -> " + report.energyAfter);
+    } catch (error) {
+      console.log("   FAIL " + error.message);
+    }
+  }
 }
 
 main().catch((error) => {
