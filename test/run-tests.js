@@ -341,7 +341,8 @@ async function testFullFlow() {
     post && post.content.includes("Sign: ok") && post.content.includes("Share: ok"),
     post && post.content,
   );
-  assert("分享加分 +5", post && post.content.includes("+5"), post && post.content);
+  assert("分享加分 +5", post && post.content.includes("+5 浏览加分"), post && post.content);
+  assert("通知含分享链接", post && post.content.includes("link=https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id="), post && post.content);
   assert(
     "shareReporting 带 H5 签名",
     client.calls.some((c) => c.url.includes("shareReporting") && c.headers["X-Ca-Signature"]),

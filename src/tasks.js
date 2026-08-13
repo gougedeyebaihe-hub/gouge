@@ -232,6 +232,12 @@ function extractPoint(payload) {
   return null;
 }
 
+/**
+ * 分享任务。注意：分享 +5 积分的完整机制是
+ *   "分享动作（getShareCode + shareReporting）→ 他人当日浏览分享链接 → +5 积分"。
+ * 因此成功标准 = 分享动作完成；积分前后对比仅作附加报告：
+ *   points > 0 → 已有人浏览加分；points = 0 → 正常，等待浏览。
+ */
 async function runShareTask(context, report) {
   const { config } = context;
 
@@ -258,7 +264,7 @@ async function runShareTask(context, report) {
     const shareCode = await obtainShareCode(context);
     await postShareReporting(context, shareCode);
 
-    // 分享后积分对比（接口 success 不可信，以 point 变化为准）
+    // 分享后积分对比（仅作浏览加分报告，不作为成功判据）
     let energyAfter = null;
     try {
       const after = await getMyEnergy(context);
@@ -269,18 +275,12 @@ async function runShareTask(context, report) {
 
     report.energyBefore = energyBefore;
     report.energyAfter = energyAfter;
+    report.shareCode = shareCode;
+    report.shareUrl = buildShareUrl(articleId);
 
-    if (energyBefore != null && energyAfter != null) {
-      const delta = energyAfter - energyBefore;
-      if (delta > 0) {
-        report.share = { ok: true, points: delta };
-        return { ok: true, points: delta };
-      }
-      report.share = { ok: true, already: true, points: 0 };
-      return { ok: true, already: true, message: "no point change (already shared today?)" };
-    }
-    report.share = { ok: true, unverified: true };
-    return { ok: true, unverified: true };
+    const delta = energyBefore != null && energyAfter != null ? energyAfter - energyBefore : null;
+    report.share = { ok: true, points: delta, shareUrl: report.shareUrl };
+    return { ok: true, points: delta, shareUrl: report.shareUrl };
   } catch (error) {
     // 兜底文章重试
     if (config.fallbackArticleId && config.articleId !== config.fallbackArticleId) {
@@ -291,8 +291,10 @@ async function runShareTask(context, report) {
         });
         const shareCode = await obtainShareCode(context);
         await postShareReporting(context, shareCode);
-        report.share = { ok: true, fallback: true };
-        return { ok: true, fallback: true };
+        report.shareCode = shareCode;
+        report.shareUrl = buildShareUrl(config.fallbackArticleId);
+        report.share = { ok: true, fallback: true, shareUrl: report.shareUrl };
+        return { ok: true, fallback: true, shareUrl: report.shareUrl };
       } catch (fallbackError) {
         report.shareError = fallbackError;
         return { ok: false, message: fallbackError.message };
@@ -309,7 +311,10 @@ function summarizeTask(name, result) {
   if (!result) return name + ": skipped";
   if (result.ok) {
     if (result.already) return name + ": ok (already)";
-    if (result.points != null) return name + ": ok (+" + result.points + ")";
+    if (result.points != null) {
+      // 分享：points>0 = 已有人当日浏览加分；points=0 = 动作完成待浏览（正常）
+      return name + ": ok" + (result.points > 0 ? " (+" + result.points + " 浏览加分)" : " (待浏览)");
+    }
     return name + ": ok";
   }
   return name + ": failed (" + shorten(result.message) + ")";
@@ -322,7 +327,12 @@ function shorten(text) {
 
 function buildSummary(report, config) {
   const parts = [summarizeTask("Sign", report.sign)];
-  if (config.shareEnabled) parts.push(summarizeTask("Share", report.share));
+  if (config.shareEnabled) {
+    parts.push(summarizeTask("Share", report.share));
+    if (report.shareUrl && report.share && report.share.ok) {
+      parts.push("link=" + report.shareUrl);
+    }
+  }
   return parts.join(" | ");
 }
 
@@ -373,6 +383,9 @@ async function runDailyTasks(context) {
     }
     if (report.energyBefore != null || report.energyAfter != null) {
       details.push("energy=" + report.energyBefore + "->" + report.energyAfter);
+    }
+    if (report.shareCode) {
+      details.push("shareCode=" + report.shareCode);
     }
     details.push("token=" + summarizeTokenState(context.tokenState));
     diagnostic = details.join(" | ");
