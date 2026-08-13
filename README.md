@@ -77,28 +77,34 @@
 ## 项目结构
 
 ```
-lynkco-loon/
 ├── src/                  # 源码模块（构建源）
 │   ├── crypto.js         # SHA256 / HMAC / MD5 / Base64 / UTF-8（纯 JS，兼容 JavaScriptCore）
 │   ├── signature.js      # H5 签名 + 原生 SDK 签名
 │   ├── config.js         # 参数解析与默认值（密钥表）
 │   ├── api.js            # 接口封装（refresh / 签到 / 分享 / 文章 / 积分）
-│   ├── tasks.js          # 任务编排（续期 → 签到 → 分享 → 积分验证）
+│   ├── tasks.js          # 任务编排（续期 → 签到 → 分享 → 浏览加分报告）
 │   ├── store.js          # 持久化（token / 每日状态 / 捕获 / certifyId）
 │   ├── notify.js         # 通知与诊断信息
 │   └── main.js           # Loon 入口（cron / 捕获分发）
 ├── lynkco.bundle.js      # 构建产物（Loon 实际运行文件）
 ├── LynkCo.plugin         # Loon 插件（构建产物，双击导入）
 ├── build.js              # 构建脚本（node build.js）
-├── test/                 # 离线测试（node test/run-tests.js）
+├── test/                 # 离线测试 + 真实验证（run-tests.js / live-check.js）
 └── docs/protocol.md      # 协议与签名细节记录（密钥轮换应对指南）
 ```
+
+## 版本历史与旧文件
+
+- 旧捕获式方案（`auto.bundle.js`、`capture.bundle.js` 及 6 个 `lynkco-share-*.remote.plugin`
+  旧插件）已于 2026-08-13 移除，被本重构版（`LynkCo.plugin` + `lynkco.bundle.js`）完全取代。
+- 旧版本可通过 git 历史找回：`git log --oneline` → `git show <commit>:auto.bundle.js`。
+- 若 Loon 中仍装有旧插件（`lynkco-share-*`），请删除——其脚本 URL 已失效。
 
 ## 开发
 
 ```bash
 node build.js            # 重新生成 lynkco.bundle.js + LynkCo.plugin
-node test/run-tests.js   # 运行 32 个离线测试（crypto 向量 / 签名格式 / 完整流程 mock）
+node test/run-tests.js   # 运行 34 个离线测试（crypto 向量 / 签名格式 / 完整流程 mock）
 ```
 
 ## 已知限制
