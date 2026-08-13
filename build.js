@@ -16,7 +16,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const OUT_DIR = ROOT;
 
-const BUNDLE_VERSION = "v20260813-refactor3";
+const BUNDLE_VERSION = "v20260813-refactor4";
 
 /* 模块拼接顺序（依赖在前） */
 const MODULES = [
@@ -77,6 +77,7 @@ function buildPlugin() {
     "autoRunOnCapture=0",
     "oncePerDay=1",
     "debug=1",
+    "captureNotify=0",
   ].join(",");
 
   return `#!name=Lynk & Co Auto Sign

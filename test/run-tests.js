@@ -434,7 +434,13 @@ async function testCaptureFlow() {
   assert("refreshToken 捕获正确", stored.refreshToken === "rt-captured-1", JSON.stringify(stored));
   assert("token 捕获正确", stored.token === "bearer-cap-token");
   assert("deviceId 捕获正确", stored.deviceId === "dev-9");
-  assert("捕获通知已发送", notification._posts.length >= 1);
+  assert("默认不发送捕获通知（captureNotify=0）", notification._posts.length === 0);
+
+  // captureNotify=1 时发送通知
+  const store2 = createMockStore();
+  const notification2 = createMockNotification();
+  runBundleOnce({ request, store: store2, notification: notification2, httpClient: client, argument: "captureNotify=1" });
+  assert("captureNotify=1 时发送捕获通知", notification2._posts.length >= 1);
 }
 
 async function testOncePerDay() {

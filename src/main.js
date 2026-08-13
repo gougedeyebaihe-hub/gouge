@@ -168,7 +168,8 @@ function handleCapture(input) {
   const fingerprintChanged = capturedFingerprint(merged) !== capturedFingerprint(previous);
   writeTokenState(store, merged);
 
-  if (fingerprintChanged || config.debug) {
+  // 捕获通知默认关闭（captureNotify=1 时开启；需要重抓 token 时临时打开）
+  if (config.captureNotify) {
     const body = JSON.stringify({
       capturedAt: new Date().toISOString(),
       source: response ? "response" : "request",
