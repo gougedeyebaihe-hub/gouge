@@ -5,7 +5,7 @@
  *    待签串：METHOD\nAccept\nContent-MD5\nContent-Type\nDate\n
  *            X-Ca-Key:..\nX-Ca-Nonce:..\nX-Ca-Signature-Method:..\nX-Ca-Timestamp:..\n
  *            path[?排序后的query]
- *    注：Content-MD5 与 Date 留空；Accept=*/*，Content-Type=application/json
+ *    注：Content-MD5 与 Date 留空；Accept 为通配、Content-Type=application/json
  *
  * 2) 原生 SDK 签名（小写 x-ca-* 头，阿里云 API 网关 SDK 风格）
  *    待签串：METHOD\nAccept\nContent-MD5\nContent-Type\nDate\n

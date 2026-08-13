@@ -49,6 +49,7 @@
 | `autoRunOnCapture` | `0` | 捕获到 token 时是否立即执行一次任务 |
 | `oncePerDay` | `1` | 每天只成功执行一次 |
 | `debug` | `1` | 通知附带诊断信息（失败时建议保持开启，方便排查） |
+| `captureNotify` | `0` | 捕获到 token 时是否发送 `LynkCo Token Captured` 通知；需要重抓 token 时临时设为 `1` |
 
 ## 通知解读
 
