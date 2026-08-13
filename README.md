@@ -1,133 +1,109 @@
-# 领克 Loon 插件说明
+# 领克 App 自动签到 + 文章分享（Loon 重构版）
 
-## 当前状态
+纯定时式重构版：**捕获一次 token 后，每天自动签到和分享文章，无需再打开领克 App**。
 
-当前版本：`v20260813b`
+> 旧版（`auto.bundle.js` / `capture.bundle.js`，捕获式）已失效：2026-07 领克 App 更新后签名密钥轮换、签到接口迁移为 `/up/api/v1/user/sign/upgrade`、新接口改用原生 SDK 签名体系。本版本补齐两套签名（H5 + 原生 SDK），签到/分享全部由脚本自构造签名请求，不再依赖 App 流量。
 
-当前状态：
+## 快速开始
 
-- 自动签到
-- 文章分享已恢复
-- 关闭每天只跑一次的限制
-- 关闭每 5 分钟的存活通知，避免无关通知刷屏
-- 新增自动抓取，命中领克流量后发送 `Lynk & Co Capture`
+### 1. 导入插件
 
-预期成功通知：
+在 Loon 中导入 `LynkCo.plugin`（双击文件，或复制到 Loon 配置目录后 `[Plugin]` 引用）。
 
-```text
-Sign: ok | Share: ok
-```
+插件已包含：
 
-## 远程插件
-
-在 Loon 中导入这个地址：
-
-```text
-https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco-share-v20260812q.remote.plugin?v=20260813a
-```
-
-当前脚本缓存版本：
-
-```text
-auto.bundle.js?v=20260812z&oncePerDay=0&pingNotify=0&signRequestNotify=0&shareEnabled=1
-capture.bundle.js?v=20260813b&forceNotify=0&minNotifyIntervalMs=60000&captureHitNotify=1
-```
-
-## 仓库内容
-
-- `lynkco-share-v20260812q.remote.plugin`：当前推荐使用的 Loon 远程插件入口
-- `lynkco-share.remote.plugin`：兼容入口
-- `auto.bundle.js`：token 捕获和任务执行脚本
-- `capture.bundle.js`：只负责抓取认证状态并发送通知
-- `README.md`：使用说明和排查方法
-
-## 工作方式
-
-1. `http-request` 和 `http-response` 捕获领克流量。
-2. 保存到有效 token 后自动执行签到和文章分享。
-3. 当前关闭每天只跑一次限制，方便测试。
-4. 每次成功或失败会发送最终结果通知。
-
-## 抓取数据
-
-1. 在 Loon 中把插件更新到 `v20260813b`。
-2. 打开领克 App，进入登录、签到、个人中心等页面，制造真实请求。
-3. 先收到 `Lynk & Co Capture Hit`，表示 Loon 已经命中领克请求。
-4. 收到 `Lynk & Co Capture` 后，通知内容是一段 JSON。
-5. 从 JSON 中读取 `refreshToken`、`deviceId`、`token` 等字段，用于后续 Windows 端脚本。
-
-如果连 `Lynk & Co Capture Hit` 都没有，先确认插件版本是 `v20260813b`，再确认 Loon 的 MITM 已开启且证书受信任。
-
-## Loon 参数
-
-```text
-articleId=
-debugNotify=0
-shareEnabled=1
-autoRunOnCapture=1
-oncePerDay=0
-pingNotify=0
-captureTraceNotify=0
-signTraceNotify=0
-signRequestNotify=0
-signCandidateNotify=0
-signUpgradeNotify=0
-forceNotify=0
-minNotifyIntervalMs=60000
-captureHitNotify=1
-```
-
-| 参数 | 含义 |
+| 配置项 | 说明 |
 | --- | --- |
-| `articleId` | 固定文章 ID；留空自动使用第一篇文章 |
-| `debugNotify` | 抓到认证状态时通知 |
-| `shareEnabled` | 当前为 `1`，文章分享已恢复 |
-| `autoRunOnCapture` | 设为 `0` 关闭捕获后自动执行 |
-| `oncePerDay` | 当前为 `0`，关闭每天只跑一次限制 |
-| `pingNotify` | 当前为 `0`，关闭每 5 分钟存活通知 |
-| `captureTraceNotify` | 调试用，通知所有命中接口 URL |
-| `signTraceNotify` | 调试用，通知签到信息接口摘要 |
-| `signRequestNotify` | 调试用，通知真实签到请求头摘要 |
-| `signCandidateNotify` | 调试用，通知疑似签到 POST 接口 |
-| `signUpgradeNotify` | 调试用，通知 `/sign/upgrade` 请求详情 |
-| `forceNotify` | 当前为 `0`，只在认证状态变化时发送抓取通知 |
-| `minNotifyIntervalMs` | 抓取通知最短间隔，当前为 60000 毫秒 |
-| `captureHitNotify` | 当前为 `1`，命中领克请求时发送调试通知 |
+| `[Script]` 定时任务 | 每天 10:00 和 14:00（14:00 为失败兜底，今日已成功则跳过） |
+| 流量捕获 | 命中领克域名时提取 token 并保存（`http-request` / `http-response`） |
+| `[MITM]` | 5 个域名：`h5-api.lynkco.com`、`h5.lynkco.com`、`app-api-gw-toc.lynkco.com`、`app-services.lynkco.com.cn`、`gric-api.geely.com` |
 
-## 匹配域名
+### 2. 抓取一次 token（只需一次）
 
-```text
-h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.com.cn
+1. 确认 Loon 已开启 MITM 且证书受信任（设置 → MITM → 安装并信任证书）。
+2. 打开领克 App，随便操作（登录、签到页、个人中心、资讯页均可）。
+3. 等待通知 **`LynkCo Token Captured`**，内容包含捕获到的 `refreshToken` 等信息，并已自动保存。
+4. 如果收到的通知显示 `No token saved. Open Lynk & Co once to capture token.`，说明 App 还没有产生带 token 的流量，多翻几个页面即可。
+
+> 也可以手动把 `refreshToken` 填进插件参数（见下表），与捕获二选一。
+
+### 3. 验证
+
+- 捕获成功后，第二天 10:00（或手动点插件的"执行"）会收到 **`LynkCo Daily`** 通知。
+- 预期成功：`Sign: ok | Share: ok (+5)`（`+5` 表示本次分享确认获得 5 积分）。
+- 分享每天只有一次上限；重复运行显示 `Share: ok (already)`。
+
+## 插件参数
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `refreshToken` | 空 | 登录令牌（约 30 天有效，脚本每天自动续期）。可从捕获通知中获取后填入 |
+| `deviceId` | 空 | 设备 ID（捕获时自动保存） |
+| `deviceType` | `IOS` | 设备类型 |
+| `appVersion` | `4.2.3` | App 版本（随 App 更新调整） |
+| `articleId` | 空 | 固定分享文章 ID；留空自动取资讯首页第一篇 |
+| `xCaKey` | `203760416` | 网关密钥 Key（2026-07 轮换后的新值） |
+| `appSecret` | 自动匹配 | 网关密钥 Secret；留空按 `xCaKey` 自动匹配。**无法抓包获得**，轮换时需重新提取（见 docs/protocol.md） |
+| `appCode` | `3fa3314998bd4195a9fe2df3e85e6a12` | 静态认证码（refresh 接口用） |
+| `shareEnabled` | `1` | 是否执行文章分享 |
+| `autoRunOnCapture` | `0` | 捕获到 token 时是否立即执行一次任务 |
+| `oncePerDay` | `1` | 每天只成功执行一次 |
+| `debug` | `1` | 通知附带诊断信息（失败时建议保持开启，方便排查） |
+
+## 通知解读
+
+| 通知 | 含义 | 处理 |
+| --- | --- | --- |
+| `LynkCo Token Captured` | 捕获到认证信息并已保存 | 无需处理 |
+| `No token saved. Open Lynk & Co once...` | 还没有 token | 打开领克 App 制造一次流量 |
+| `Sign: ok` | 签到成功（或今日已签） | 无需处理 |
+| `Sign: failed (HTTP 403...)` | 签到被网关拒绝 | 见下方故障排查 |
+| `Share: ok (+5)` | 分享成功且确认积分 +5 | 无需处理 |
+| `Share: failed (...need.validate.check...)` | 分享需要人机验证 | 打开领克 App 手动分享一次后重试（脚本会自动复用 certifyId） |
+| `token=...` 诊断提示 | token 失效 | 重新打开领克 App 捕获新 token |
+
+## 故障排查
+
+**签到 403（诊断含 `type=signature-or-key(403)`）**
+- 大概率是签名密钥（appSecret）已失效或 key 再次轮换。AppSecret 无法抓包获得，需要按 `docs/protocol.md` 中的逆向方法重新提取，或等待公开仓库更新。
+- 也可能是 App 版本与签名体系不匹配，尝试更新 `appVersion` 参数。
+
+**`Share: failed (need.validate.check)`**
+- 分享接口要求极验人机验证。脚本会尝试自动获取 certifyId；若失败，打开领克 App 手动分享一次文章（脚本会从流量中捕获 certifyId 并复用）。
+
+**没有收到任何通知**
+- 确认插件已启用、MITM 已开启、证书已信任；在 Loon 脚本页确认脚本被执行（有命中记录）。
+
+## 项目结构
+
+```
+lynkco-loon/
+├── src/                  # 源码模块（构建源）
+│   ├── crypto.js         # SHA256 / HMAC / MD5 / Base64 / UTF-8（纯 JS，兼容 JavaScriptCore）
+│   ├── signature.js      # H5 签名 + 原生 SDK 签名
+│   ├── config.js         # 参数解析与默认值（密钥表）
+│   ├── api.js            # 接口封装（refresh / 签到 / 分享 / 文章 / 积分）
+│   ├── tasks.js          # 任务编排（续期 → 签到 → 分享 → 积分验证）
+│   ├── store.js          # 持久化（token / 每日状态 / 捕获 / certifyId）
+│   ├── notify.js         # 通知与诊断信息
+│   └── main.js           # Loon 入口（cron / 捕获分发）
+├── lynkco.bundle.js      # 构建产物（Loon 实际运行文件）
+├── LynkCo.plugin         # Loon 插件（构建产物，双击导入）
+├── build.js              # 构建脚本（node build.js）
+├── test/                 # 离线测试（node test/run-tests.js）
+└── docs/protocol.md      # 协议与签名细节记录（密钥轮换应对指南）
 ```
 
-请在 Loon 中对这些精确域名开启 MITM 并信任证书。
+## 开发
 
-## 日常使用
-
-1. 在 Loon 中更新远程插件到 `v20260813b`。
-2. 打开领克 App。
-3. 查看 `Sign: ok | Share: ok`、失败通知，或 `Lynk & Co Capture` 抓取通知。
+```bash
+node build.js            # 重新生成 lynkco.bundle.js + LynkCo.plugin
+node test/run-tests.js   # 运行 32 个离线测试（crypto 向量 / 签名格式 / 完整流程 mock）
+```
 
 ## 已知限制
 
-- Loon 无法在 iOS 上自动打开领克或点击按钮。
-- 插件至少需要捕获过一次有效 token。
-- 抓取通知只在认证状态变化时发送，避免同一状态反复弹出。
-
-## 版本记录
-
-- `v20260813b`：新增命中通知 `Lynk & Co Capture Hit`，用于确认 Loon 是否真的执行了抓取脚本。
-- `v20260813a`：新增独立抓取脚本，自动保存并通知 `refreshToken`、`deviceId`、`token` 等认证字段。
-- `v20260812x`：每 5 分钟发送脚本存活通知，用于确认 Loon 是否加载插件。
-- `v20260812w`：恢复文章分享，保留现有分享验证流程。
-- `v20260812v`：关闭每天只跑一次限制，进入测试模式。
-- `v20260812t`：恢复此前签到成功版本的请求组装逻辑，移除额外 APPCODE 和 `X-Ca-AppCode` 改动。
-- `v20260812s`：把调试参数直接写入脚本 URL，避免 Loon 未应用插件参数。
-- `v20260812r`：新增 `app-services.lynkco.com.cn` MITM 和签到重试，捕获当前 App 真实签到流量。
-- `v20260812q`：暂停文章分享，开启真实签到请求头通知。
-- `v20260812p`：签到请求补充 `X-Ca-AppCode: SWGeelyCode`，尝试修复新网关 `Unauthorized Consumer`。
-- `v20260812o`：临时开启 `pingNotify=1`，用于确认 Loon 是否命中脚本。
-- `v20260812n`：签到请求恢复 APPCODE，修复 `Unauthorized Consumer`。
-- `v20260812m`：分享请求不再优先使用旧验证，收到 403 时会清除无效 `certifyId` 并重新走验证流程。
-- `v20260812l`：修复分享请求 403，移除导致网关拒绝的多余 App 默认请求头。
-- `v20260812k`：新增分享验证的 `certifyId` 自动处理和捕获复用；减少无关调试通知。
+- 领克 App 有 SSL pinning，token 必须通过 Loon MITM 或越狱/root 设备抓取；正常使用中每 30 天需刷新一次（脚本自动续期，无需手动）。
+- 分享每日 1 次上限；接口返回 success 不代表加分，脚本以 `myEnergy` 积分前后对比为准。
+- 密钥（appSecret）随 App 大版本更新可能再次轮换，届时需重新提取。
+- 账号存在单会话限制（多个设备同时登录可能互相踢出）。
