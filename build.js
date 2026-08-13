@@ -16,7 +16,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const OUT_DIR = ROOT;
 
-const BUNDLE_VERSION = "v20260813-refactor4";
+const BUNDLE_VERSION = "v20260813-refactor5";
 
 /* 模块拼接顺序（依赖在前） */
 const MODULES = [
@@ -90,8 +90,8 @@ function buildPlugin() {
 ${args.replace(/,/g, "\n")}
 
 [Script]
-cron "0 10 * * *" script-path=${bundleUrl},tag=lynkco-daily-10,timeout=120,enable=true
-cron "0 14 * * *" script-path=${bundleUrl},tag=lynkco-daily-14,timeout=120,enable=true
+cron "1 0 * * *" script-path=${bundleUrl},tag=lynkco-daily-0001,timeout=120,enable=true
+cron "1 3 * * *" script-path=${bundleUrl},tag=lynkco-daily-0301,timeout=120,enable=true
 http-request ^https?:\\/\\/(h5-api|h5|app-api-gw-toc|app-services|gric-api)\\.(lynkco\\.com|lynkco\\.com\\.cn|geely\\.com)\\/.* script-path=${bundleUrl},requires-body=true,tag=lynkco-capture-request,timeout=30,enable=true
 http-response ^https?:\\/\\/(h5-api|h5|app-api-gw-toc|app-services|gric-api)\\.(lynkco\\.com|lynkco\\.com\\.cn|geely\\.com)\\/.* script-path=${bundleUrl},requires-body=true,tag=lynkco-capture-response,timeout=30,enable=true
 
