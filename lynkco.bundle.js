@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260813-refactor8
+ * v20260813-refactor9
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -1932,8 +1932,7 @@ function handleCron(input) {
   if (config.oncePerDay) {
     const daily = readDailyState(store);
     if (daily.date === today && daily.success) {
-      // 今日已完成：不再静默跳过，发一条简短确认（手动执行时能立即看到反馈）
-      postNotification(notification, "LynkCo Daily", "Already done today, skip.", "");
+      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
       return Promise.resolve();
     }
   }

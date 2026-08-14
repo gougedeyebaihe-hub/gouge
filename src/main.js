@@ -212,8 +212,7 @@ function handleCron(input) {
   if (config.oncePerDay) {
     const daily = readDailyState(store);
     if (daily.date === today && daily.success) {
-      // 今日已完成：不再静默跳过，发一条简短确认（手动执行时能立即看到反馈）
-      postNotification(notification, "LynkCo Daily", "Already done today, skip.", "");
+      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
       return Promise.resolve();
     }
   }

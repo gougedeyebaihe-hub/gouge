@@ -460,12 +460,7 @@ async function testOncePerDay() {
   await waitFor(() => sandbox.__doneCalled, 1000);
 
   assert("今日已成功则无请求", client.calls.length === 0, "calls=" + client.calls.length);
-  assert("跳过时发送确认通知（不再静默）", notification._posts.length === 1, JSON.stringify(notification._posts));
-  assert(
-    "跳过通知内容正确",
-    notification._posts[0] && notification._posts[0].content.includes("Already done today"),
-    notification._posts[0] && notification._posts[0].content,
-  );
+  assert("跳过时静默（无通知）", notification._posts.length === 0, JSON.stringify(notification._posts));
 }
 
 /* ================= 主入口 ================= */
