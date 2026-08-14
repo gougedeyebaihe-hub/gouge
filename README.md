@@ -47,7 +47,8 @@
 | `appCode` | `3fa3314998bd4195a9fe2df3e85e6a12` | 静态认证码（refresh 接口用） |
 | `shareEnabled` | `1` | 是否执行文章分享 |
 | `autoRunOnCapture` | `0` | 捕获到 token 时是否立即执行一次任务 |
-| `oncePerDay` | `1` | 每天只成功执行一次 |
+| `oncePerDay` | `1` | 每天只成功执行一次（03:01 兜底时静默跳过） |
+| `forceRun` | `0` | 设为 `1` 时忽略"今日已完成"限制，**强制执行一次并弹窗**（手动验证用，用完改回 `0`） |
 | `debug` | `1` | 通知附带诊断信息（失败时建议保持开启，方便排查） |
 | `captureNotify` | `0` | 捕获到 token 时是否发送 `LynkCo Token Captured` 通知；需要重抓 token 时临时设为 `1` |
 

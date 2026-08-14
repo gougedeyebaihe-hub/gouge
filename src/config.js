@@ -30,6 +30,7 @@ const DEFAULT_CONFIG = {
   shareEnabled: true,
   autoRunOnCapture: false,
   oncePerDay: true,
+  forceRun: false, // 设为 1 时忽略"今日已完成"限制，强制执行一次（手动验证用，用完改回 0）
   debug: true,
   captureNotify: false, // 捕获到 token 时是否发送 "LynkCo Token Captured" 通知（需要重抓 token 时临时打开）
   /* 原生签名接口可选的设备头（研究结论：非必需，但保留以兼容风控） */
@@ -96,6 +97,7 @@ function buildConfig(argument) {
   config.shareEnabled = truthyFlag(source.shareEnabled, DEFAULT_CONFIG.shareEnabled);
   config.autoRunOnCapture = truthyFlag(source.autoRunOnCapture, DEFAULT_CONFIG.autoRunOnCapture);
   config.oncePerDay = truthyFlag(source.oncePerDay, DEFAULT_CONFIG.oncePerDay);
+  config.forceRun = truthyFlag(source.forceRun, DEFAULT_CONFIG.forceRun);
   config.debug = truthyFlag(source.debug, DEFAULT_CONFIG.debug);
   config.captureNotify = truthyFlag(source.captureNotify, DEFAULT_CONFIG.captureNotify);
   if (source.glDevId) config.device.glDevId = source.glDevId;

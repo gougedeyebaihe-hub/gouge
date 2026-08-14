@@ -209,10 +209,10 @@ function handleCron(input) {
     return Promise.resolve();
   }
 
-  if (config.oncePerDay) {
+  if (config.oncePerDay && !config.forceRun) {
     const daily = readDailyState(store);
     if (daily.date === today && daily.success) {
-      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
+      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）；forceRun=1 时强制执行
       return Promise.resolve();
     }
   }

@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260813-refactor9
+ * v20260813-refactor10
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -494,6 +494,7 @@ const DEFAULT_CONFIG = {
   shareEnabled: true,
   autoRunOnCapture: false,
   oncePerDay: true,
+  forceRun: false, // 设为 1 时忽略"今日已完成"限制，强制执行一次（手动验证用，用完改回 0）
   debug: true,
   captureNotify: false, // 捕获到 token 时是否发送 "LynkCo Token Captured" 通知（需要重抓 token 时临时打开）
   /* 原生签名接口可选的设备头（研究结论：非必需，但保留以兼容风控） */
@@ -560,6 +561,7 @@ function buildConfig(argument) {
   config.shareEnabled = truthyFlag(source.shareEnabled, DEFAULT_CONFIG.shareEnabled);
   config.autoRunOnCapture = truthyFlag(source.autoRunOnCapture, DEFAULT_CONFIG.autoRunOnCapture);
   config.oncePerDay = truthyFlag(source.oncePerDay, DEFAULT_CONFIG.oncePerDay);
+  config.forceRun = truthyFlag(source.forceRun, DEFAULT_CONFIG.forceRun);
   config.debug = truthyFlag(source.debug, DEFAULT_CONFIG.debug);
   config.captureNotify = truthyFlag(source.captureNotify, DEFAULT_CONFIG.captureNotify);
   if (source.glDevId) config.device.glDevId = source.glDevId;
@@ -1929,10 +1931,10 @@ function handleCron(input) {
     return Promise.resolve();
   }
 
-  if (config.oncePerDay) {
+  if (config.oncePerDay && !config.forceRun) {
     const daily = readDailyState(store);
     if (daily.date === today && daily.success) {
-      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
+      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）；forceRun=1 时强制执行
       return Promise.resolve();
     }
   }

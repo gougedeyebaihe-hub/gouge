@@ -463,6 +463,65 @@ async function testOncePerDay() {
   assert("跳过时静默（无通知）", notification._posts.length === 0, JSON.stringify(notification._posts));
 }
 
+async function testForceRun() {
+  console.log("\n== 流程：forceRun 强制执行 ==");
+  const store = createMockStore();
+  const notification = createMockNotification();
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  store.write(JSON.stringify({ date: today, success: true }), "lynkco.share.dailyState");
+  store.write(JSON.stringify({ refreshToken: "rt-force" }), "lynkco.share.tokenState");
+
+  const routes = [
+    {
+      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
+      respond: () => ({
+        data: JSON.stringify({
+          code: "success",
+          data: { centerTokenDto: { token: "t-force", refreshToken: "rt-force", expireAt: 9999999999 } },
+        }),
+      }),
+    },
+    {
+      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
+      respond: () => ({ data: JSON.stringify({ code: "success", data: { signStatus: 1 } }) }),
+    },
+    {
+      match: (method, url) => method === "post" && url.includes("/app/explore/home-page/square/index2"),
+      respond: () => ({
+        data: JSON.stringify({
+          code: "success",
+          data: { userByteDynamicsResponseDTOS: [{ dynamicId: FIXED_ARTICLE_ID }] },
+        }),
+      }),
+    },
+    {
+      match: (method, url) => method === "get" && url.includes("/app/v1/task/getShareCode"),
+      respond: () => ({ data: JSON.stringify({ code: "success", data: "share-force-1" }) }),
+    },
+    {
+      match: (method, url) => method === "post" && url.includes("/app/v1/task/shareReporting"),
+      respond: () => ({ data: JSON.stringify({ code: "success" }) }),
+    },
+    {
+      match: (method, url) => method === "get" && url.includes("/app/energy/myEnergy"),
+      respond: () => ({ data: JSON.stringify({ code: "success", data: { point: 100 } }) }),
+    },
+  ];
+  const { client } = createMockHttpClient(routes);
+
+  const sandbox = runBundleOnce({
+    argument: "oncePerDay=1&forceRun=1&debug=1",
+    store,
+    notification,
+    httpClient: client,
+  });
+  await waitFor(() => notification._posts.length > 0 && sandbox.__doneCalled, 3000);
+
+  assert("forceRun=1 时今日已成功也执行", client.calls.length > 0, "calls=" + client.calls.length);
+  assert("强制执行后发送结果通知", notification._posts.length === 1, JSON.stringify(notification._posts));
+  assert("结果通知为执行结果", notification._posts[0] && notification._posts[0].content.includes("Sign:"), notification._posts[0] && notification._posts[0].content);
+}
+
 /* ================= 主入口 ================= */
 
 async function main() {
@@ -473,6 +532,7 @@ async function main() {
   await testShareValidationFlow();
   await testCaptureFlow();
   await testOncePerDay();
+  await testForceRun();
 
   console.log("\n================================");
   console.log("passed: " + passed + ", failed: " + failed);
