@@ -1,5 +1,5 @@
 #!name=Lynk & Co Auto Sign
-#!desc=每日自动签到 + 文章分享（纯定时式，捕获一次 token 后无需再打开 App）| v20260813-refactor11
+#!desc=每日自动签到 + 文章分享（纯定时式，捕获一次 token 后无需再打开 App）| v20260813-refactor12
 #!arguments=refreshToken=,deviceId=,deviceType=IOS,appVersion=4.2.3,articleId=,xCaKey=203760416,appSecret=,appCode=3fa3314998bd4195a9fe2df3e85e6a12,shareEnabled=1,autoRunOnCapture=0,oncePerDay=1,debug=1,captureNotify=0
 #!author=LynkCo Refactor
 #!homepage=https://github.com/gougedeyebaihe-hub/gouge
@@ -20,10 +20,10 @@ debug=1
 captureNotify=0
 
 [Script]
-cron "1 0 * * *" script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco.bundle.js?v=v20260813-refactor11,tag=lynkco-daily-0001,timeout=120,enable=true
-cron "1 3 * * *" script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco.bundle.js?v=v20260813-refactor11,tag=lynkco-daily-0301,timeout=120,enable=true
-http-request ^https?:\/\/(h5-api|h5|app-api-gw-toc|app-services|gric-api)\.(lynkco\.com|lynkco\.com\.cn|geely\.com)\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco.bundle.js?v=v20260813-refactor11,requires-body=true,tag=lynkco-capture-request,timeout=30,enable=true
-http-response ^https?:\/\/(h5-api|h5|app-api-gw-toc|app-services|gric-api)\.(lynkco\.com|lynkco\.com\.cn|geely\.com)\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco.bundle.js?v=v20260813-refactor11,requires-body=true,tag=lynkco-capture-response,timeout=30,enable=true
+cron "1 0 * * *" script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco.bundle.js?v=v20260813-refactor12,tag=lynkco-daily-0001,timeout=120,enable=true
+cron "1 3 * * *" script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco.bundle.js?v=v20260813-refactor12,tag=lynkco-daily-0301,timeout=120,enable=true
+http-request ^https?:\/\/(h5-api|h5|app-api-gw-toc|app-services|gric-api)\.(lynkco\.com|lynkco\.com\.cn|geely\.com)\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco.bundle.js?v=v20260813-refactor12,requires-body=true,tag=lynkco-capture-request,timeout=30,enable=true
+http-response ^https?:\/\/(h5-api|h5|app-api-gw-toc|app-services|gric-api)\.(lynkco\.com|lynkco\.com\.cn|geely\.com)\/.* script-path=https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/lynkco.bundle.js?v=v20260813-refactor12,requires-body=true,tag=lynkco-capture-response,timeout=30,enable=true
 
 [MITM]
 hostname = h5-api.lynkco.com,h5.lynkco.com,app-api-gw-toc.lynkco.com,app-services.lynkco.com.cn,gric-api.geely.com

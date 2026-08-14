@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260813-refactor11
+ * v20260813-refactor12
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -583,7 +583,6 @@ function buildShareUrl(articleId) {
 const TOKEN_STATE_KEY = "lynkco.share.tokenState";
 const DAILY_STATE_KEY = "lynkco.share.dailyState";
 const LAST_RESULT_KEY = "lynkco.share.lastResult";
-const CAPTURE_STATE_KEY = "lynkco.capture.state";
 const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 
 function emptyTokenState() {
@@ -716,26 +715,6 @@ function clearStoredShareValidation(store) {
   }
 }
 
-/* ---------------- 捕获状态 ---------------- */
-
-function readCaptureState(store) {
-  if (!store || !store.read) return null;
-  try {
-    const parsed = JSON.parse(store.read(CAPTURE_STATE_KEY) || "");
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch (error) {
-    return null;
-  }
-}
-
-function writeCaptureState(store, state) {
-  if (!store || !store.write) return;
-  try {
-    store.write(JSON.stringify(state), CAPTURE_STATE_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
-}
 
 
 "use strict";
@@ -763,40 +742,6 @@ function summarizeTokenState(tokenState) {
   if (tokenState.oauthAccessToken) parts.push("oauth=" + maskValue(tokenState.oauthAccessToken));
   if (tokenState.authorization) parts.push("auth=" + maskValue(tokenState.authorization).slice(0, 12));
   return parts.length ? parts.join(" ") : "none";
-}
-
-/** 构建错误诊断摘要：错误类型分类 + 响应体摘要 */
-function buildDiagnostic(config, error, extra) {
-  if (!config.debug) return "";
-  const parts = [];
-  if (extra && extra.url) parts.push("url=" + extra.url);
-  if (extra && extra.responseBody) parts.push("resp=" + extra.responseBody);
-  const message = String((error && error.message) || error || "");
-  const normalized = message.toLowerCase();
-  if (normalized.includes("http 403") || normalized.includes("403")) {
-    parts.push("type=signature-or-key(403)");
-    parts.push("key=" + config.xCaKey);
-  } else if (isTokenError(message)) {
-    parts.push("type=token");
-  } else if (normalized.includes("share.need.validate.check") || normalized.includes("need.validate.check")) {
-    parts.push("type=share-validation");
-  } else if (normalized.includes("already signed") || normalized.includes("已签到")) {
-    parts.push("type=already-signed");
-  }
-  return parts.join(" ");
-}
-
-function isTokenError(message) {
-  const normalized = String(message).toLowerCase();
-  return [
-    "unauthorized",
-    "token expired",
-    "oauthaccesstoken",
-    "invalid token",
-    "登录已过期",
-    "token 失效",
-    "user-crowded-out",
-  ].some((marker) => normalized.includes(marker));
 }
 
 
@@ -904,20 +849,6 @@ function isNeedShareValidationError(error) {
 function isHttp403Error(error) {
   const text = String((error && error.message) || error || "").toLowerCase();
   return text.includes("http 403") || text.includes("403");
-}
-
-/** token 失效类错误（需要重新打开 App 捕获） */
-function isTokenInvalidError(error) {
-  const text = String((error && error.message) || error || "").toLowerCase();
-  return [
-    "unauthorized",
-    "token expired",
-    "oauthaccesstoken",
-    "invalid token",
-    "登录已过期",
-    "token 失效",
-    "user-crowded-out",
-  ].some((marker) => text.includes(marker));
 }
 
 /* ---------------- 认证头 ---------------- */

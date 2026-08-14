@@ -6,7 +6,6 @@
 const TOKEN_STATE_KEY = "lynkco.share.tokenState";
 const DAILY_STATE_KEY = "lynkco.share.dailyState";
 const LAST_RESULT_KEY = "lynkco.share.lastResult";
-const CAPTURE_STATE_KEY = "lynkco.capture.state";
 const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
 
 function emptyTokenState() {
@@ -139,23 +138,3 @@ function clearStoredShareValidation(store) {
   }
 }
 
-/* ---------------- 捕获状态 ---------------- */
-
-function readCaptureState(store) {
-  if (!store || !store.read) return null;
-  try {
-    const parsed = JSON.parse(store.read(CAPTURE_STATE_KEY) || "");
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch (error) {
-    return null;
-  }
-}
-
-function writeCaptureState(store, state) {
-  if (!store || !store.write) return;
-  try {
-    store.write(JSON.stringify(state), CAPTURE_STATE_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
-}

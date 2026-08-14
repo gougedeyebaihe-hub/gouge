@@ -115,20 +115,6 @@ function isHttp403Error(error) {
   return text.includes("http 403") || text.includes("403");
 }
 
-/** token 失效类错误（需要重新打开 App 捕获） */
-function isTokenInvalidError(error) {
-  const text = String((error && error.message) || error || "").toLowerCase();
-  return [
-    "unauthorized",
-    "token expired",
-    "oauthaccesstoken",
-    "invalid token",
-    "登录已过期",
-    "token 失效",
-    "user-crowded-out",
-  ].some((marker) => text.includes(marker));
-}
-
 /* ---------------- 认证头 ---------------- */
 
 function buildAuthHeaders(tokenState, config) {

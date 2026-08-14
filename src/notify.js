@@ -29,37 +29,3 @@ function summarizeTokenState(tokenState) {
   if (tokenState.authorization) parts.push("auth=" + maskValue(tokenState.authorization).slice(0, 12));
   return parts.length ? parts.join(" ") : "none";
 }
-
-/** 构建错误诊断摘要：错误类型分类 + 响应体摘要 */
-function buildDiagnostic(config, error, extra) {
-  if (!config.debug) return "";
-  const parts = [];
-  if (extra && extra.url) parts.push("url=" + extra.url);
-  if (extra && extra.responseBody) parts.push("resp=" + extra.responseBody);
-  const message = String((error && error.message) || error || "");
-  const normalized = message.toLowerCase();
-  if (normalized.includes("http 403") || normalized.includes("403")) {
-    parts.push("type=signature-or-key(403)");
-    parts.push("key=" + config.xCaKey);
-  } else if (isTokenError(message)) {
-    parts.push("type=token");
-  } else if (normalized.includes("share.need.validate.check") || normalized.includes("need.validate.check")) {
-    parts.push("type=share-validation");
-  } else if (normalized.includes("already signed") || normalized.includes("已签到")) {
-    parts.push("type=already-signed");
-  }
-  return parts.join(" ");
-}
-
-function isTokenError(message) {
-  const normalized = String(message).toLowerCase();
-  return [
-    "unauthorized",
-    "token expired",
-    "oauthaccesstoken",
-    "invalid token",
-    "登录已过期",
-    "token 失效",
-    "user-crowded-out",
-  ].some((marker) => normalized.includes(marker));
-}
