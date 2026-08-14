@@ -209,10 +209,10 @@ function handleCron(input) {
     return Promise.resolve();
   }
 
-  if (config.oncePerDay && !config.forceRun) {
+  if (config.oncePerDay) {
     const daily = readDailyState(store);
     if (daily.date === today && daily.success) {
-      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）；forceRun=1 时强制执行
+      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
       return Promise.resolve();
     }
   }
@@ -273,7 +273,7 @@ function runMain() {
   if (isCaptureTrigger) {
     const captured = handleCapture({ config, request, response, store, notification });
     if (captured.captured && config.autoRunOnCapture) {
-      runCron({ config, store, notification, httpClient, now: new Date(), forceRun: true });
+      runCron({ config, store, notification, httpClient, now: new Date() });
     } else {
       finish();
     }

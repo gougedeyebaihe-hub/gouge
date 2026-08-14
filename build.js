@@ -16,7 +16,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const OUT_DIR = ROOT;
 
-const BUNDLE_VERSION = "v20260813-refactor10";
+const BUNDLE_VERSION = "v20260813-refactor11";
 
 /* 模块拼接顺序（依赖在前） */
 const MODULES = [
@@ -76,7 +76,6 @@ function buildPlugin() {
     "shareEnabled=1",
     "autoRunOnCapture=0",
     "oncePerDay=1",
-    "forceRun=0",
     "debug=1",
     "captureNotify=0",
   ].join(",");
