@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260813-refactor6
+ * v20260813-refactor8
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -1566,9 +1566,9 @@ function extractPoint(payload) {
 
 /**
  * 分享任务。注意：分享 +5 积分的完整机制是
- *   "分享动作（getShareCode + shareReporting）→ 他人当日浏览分享链接 → +5 积分"。
- * 因此成功标准 = 分享动作完成；积分前后对比仅作附加报告：
- *   points > 0 → 已有人浏览加分；points = 0 → 正常，等待浏览。
+ *   "分享动作（getShareCode + shareReporting）→ 他人/自己当日浏览分享链接 → +5 积分"。
+ * 两步法（getShareCode + shareReporting）即触发加分，加分为异步落账；
+ * 因此成功标准 = 分享动作完成；即时积分对比仅作附加报告（+N 表示已确认到账）。
  */
 async function runShareTask(context, report) {
   const { config } = context;
@@ -1596,7 +1596,7 @@ async function runShareTask(context, report) {
     const shareCode = await obtainShareCode(context);
     await postShareReporting(context, shareCode);
 
-    // 分享后积分对比（仅作浏览加分报告，不作为成功判据）
+    // 分享后积分对比（即时查询，仅作附加报告）
     let energyAfter = null;
     try {
       const after = await getMyEnergy(context);
@@ -1644,8 +1644,9 @@ function summarizeTask(name, result) {
   if (result.ok) {
     if (result.already) return name + ": ok (already)";
     if (result.points != null) {
-      // 分享：points>0 = 已有人当日浏览加分；points=0 = 动作完成待浏览（正常）
-      return name + ": ok" + (result.points > 0 ? " (+" + result.points + " 浏览加分)" : " (待浏览)");
+      // 分享：两步法（getShareCode + shareReporting）即触发加分，加分为异步落账；
+      // points>0 表示复查时已确认到账，否则保持中性提示（跨日确认在次日通知中报告）
+      return name + ": ok" + (result.points > 0 ? " (+" + result.points + " 已到账)" : "");
     }
     return name + ": ok";
   }
