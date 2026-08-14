@@ -75,14 +75,16 @@ function createMockHttpClient(routes) {
   return { client, calls };
 }
 
-/** 在 vm 中执行 bundle，模拟一次 Loon 脚本运行 */
+/** 在 vm 中执行 bundle，模拟一次 Loon 脚本运行；返回 sandbox（含 __doneCalled） */
 function runBundleOnce({ request, response, argument, store, notification, httpClient }) {
   const sandbox = {
     $persistentStore: store,
     $notification: notification,
     $httpClient: httpClient,
     $argument: argument || "",
-    $done: () => {},
+    $done: () => {
+      sandbox.__doneCalled = true;
+    },
     console: console,
     TextEncoder: TextEncoder,
     setTimeout: setTimeout,
@@ -323,11 +325,12 @@ async function testFullFlow() {
   ];
   const { client } = createMockHttpClient(routes);
 
-  runBundleOnce({ argument: TEST_CONFIG_ARGUMENT, store, notification, httpClient: client });
-  await waitFor(() => notification._posts.length > 0, 3000);
+  const sandbox = runBundleOnce({ argument: TEST_CONFIG_ARGUMENT, store, notification, httpClient: client });
+  await waitFor(() => notification._posts.length > 0 && sandbox.__doneCalled, 3000);
 
   const post = notification._posts[0];
   assert("收到结果通知", Boolean(post), JSON.stringify(notification._posts));
+  assert("任务完成前不调用 $done（异步不被中断）", sandbox.__doneCalled === true);
   assert(
     "签到+分享成功",
     post && post.content.includes("Sign: ok") && post.content.includes("Share: ok"),
@@ -453,11 +456,16 @@ async function testOncePerDay() {
   store.write(JSON.stringify({ date: today, success: true }), "lynkco.share.dailyState");
   store.write(JSON.stringify({ refreshToken: "rt-old" }), "lynkco.share.tokenState");
 
-  runBundleOnce({ argument: "oncePerDay=1&debug=1", store, notification, httpClient: client });
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  const sandbox = runBundleOnce({ argument: "oncePerDay=1&debug=1", store, notification, httpClient: client });
+  await waitFor(() => sandbox.__doneCalled, 1000);
 
   assert("今日已成功则无请求", client.calls.length === 0, "calls=" + client.calls.length);
-  assert("无通知", notification._posts.length === 0);
+  assert("跳过时发送确认通知（不再静默）", notification._posts.length === 1, JSON.stringify(notification._posts));
+  assert(
+    "跳过通知内容正确",
+    notification._posts[0] && notification._posts[0].content.includes("Already done today"),
+    notification._posts[0] && notification._posts[0].content,
+  );
 }
 
 /* ================= 主入口 ================= */

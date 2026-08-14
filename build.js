@@ -16,7 +16,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const OUT_DIR = ROOT;
 
-const BUNDLE_VERSION = "v20260813-refactor5";
+const BUNDLE_VERSION = "v20260813-refactor6";
 
 /* 模块拼接顺序（依赖在前） */
 const MODULES = [

@@ -206,13 +206,15 @@ function handleCron(input) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
       postNotification(notification, "LynkCo Daily", "No token saved.", "Open Lynk & Co once to capture token.");
     }
-    return;
+    return Promise.resolve();
   }
 
   if (config.oncePerDay) {
     const daily = readDailyState(store);
     if (daily.date === today && daily.success) {
-      return; // 今天已完成，跳过
+      // 今日已完成：不再静默跳过，发一条简短确认（手动执行时能立即看到反馈）
+      postNotification(notification, "LynkCo Daily", "Already done today, skip.", "");
+      return Promise.resolve();
     }
   }
 
@@ -225,7 +227,7 @@ function handleCron(input) {
     now,
   };
 
-  runDailyTasks(context)
+  return runDailyTasks(context)
     .then(({ summary, diagnostic }) => {
       writeDailyState(store, {
         date: today,
@@ -255,21 +257,31 @@ function runMain() {
 
   const isCaptureTrigger = Boolean(request || response);
 
-  if (isCaptureTrigger) {
-    const result = handleCapture({ config, request, response, store, notification });
-    if (result.captured && config.autoRunOnCapture) {
-      // 捕获到新 token 且开启了捕获即执行
-      handleCron({ config, store, notification, httpClient, now: new Date(), forceRun: true });
+  // 完成所有异步任务后才调用 $done()。
+  // 重要：Loon 调用 $done() 后会销毁脚本环境，若在异步请求完成前结束脚本，
+  // 网络请求与通知会被中断（表现为"手动执行没反应"）。
+  const finish = () => done({});
+
+  const runCron = (input) => {
+    const result = handleCron(input);
+    if (result && typeof result.then === "function") {
+      result.then(finish, finish);
     } else {
-      done({});
+      finish();
+    }
+  };
+
+  if (isCaptureTrigger) {
+    const captured = handleCapture({ config, request, response, store, notification });
+    if (captured.captured && config.autoRunOnCapture) {
+      runCron({ config, store, notification, httpClient, now: new Date(), forceRun: true });
+    } else {
+      finish();
     }
     return;
   }
 
-  handleCron({ config, store, notification, httpClient, now: new Date() });
-  // 注意：cron 脚本结束时调用 $done() 会终止异步任务，
-  // Loon 的 cron 脚本无需 $done 也可正常执行异步操作，此处延迟到任务完成后结束。
-  setTimeout(() => done({}), 100);
+  runCron({ config, store, notification, httpClient, now: new Date() });
 }
 
 runMain();
