@@ -47,20 +47,36 @@ const DEFAULT_CONFIG = {
   nativeExtraCaHeaders: {},
 };
 
+/** 解析 "?a=1&b=2" 形式文本为对象（URL query / 表单体 / 参数串）。
+ * options.decode=false 时不做转义解码（参数串形态，保持原 parseArgument 行为）。 */
+function parseQueryString(text, options) {
+  const result = {};
+  const query = String(text || "").replace(/^\?/, "");
+  if (!query) return result;
+  const decodeValues = !options || options.decode !== false;
+  query.split("&").forEach((entry) => {
+    if (!entry) return;
+    const parts = entry.split("=");
+    const key = (parts.shift() || "").trim();
+    if (!key) return;
+    const value = parts.join("=");
+    if (!decodeValues) {
+      result[key] = value.trim();
+      return;
+    }
+    try {
+      result[decodeURIComponent(key)] = decodeURIComponent(value);
+    } catch (error) {
+      result[key] = value;
+    }
+  });
+  return result;
+}
+
 function parseArgument(argument) {
   if (!argument) return {};
   if (typeof argument === "object") return argument; // [Argument] 控件对象形态
-  return String(argument)
-    .split("&")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .reduce((accumulator, entry) => {
-      const parts = entry.split("=");
-      const key = (parts.shift() || "").trim();
-      if (!key) return accumulator;
-      accumulator[key] = parts.join("=").trim();
-      return accumulator;
-    }, {});
+  return parseQueryString(argument, { decode: false }); // "key=value&key2=value2" 字符串形态
 }
 
 function truthyFlag(value, defaultValue) {

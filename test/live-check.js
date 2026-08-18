@@ -9,22 +9,13 @@
  */
 "use strict";
 
-const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const http = require("http");
 const https = require("https");
 
 const ROOT = path.join(__dirname, "..");
-const MODULES = [
-  "crypto.js",
-  "signature.js",
-  "config.js",
-  "store.js",
-  "notify.js",
-  "api.js",
-  "tasks.js",
-];
+const { CORE_MODULES, readModule } = require(path.join(ROOT, "lib", "modules"));
 
 /* ---------- Node 版 Loon 风格 httpClient ---------- */
 
@@ -65,20 +56,8 @@ function createNodeHttpClient() {
 
 /* ---------- 加载 src 模块 ---------- */
 
-// 剥离模块顶部的块注释头（与 build.js 一致）
-function readModule(name) {
-  const lines = fs.readFileSync(path.join(ROOT, "src", name), "utf8").split("\n");
-  let start = 0;
-  if (lines.length > 0 && lines[0].trim().startsWith("/**")) {
-    let end = 1;
-    while (end < lines.length && lines[end].trim() !== "*/") end += 1;
-    start = Math.min(end + 1, lines.length);
-  }
-  return lines.slice(start).join("\n") + "\n";
-}
-
 function loadModules() {
-  const source = MODULES.map(readModule).join("\n");
+  const source = CORE_MODULES.map((name) => readModule(path.join(ROOT, "src"), name)).join("\n");
   const sandbox = { console, TextEncoder, URL, setTimeout, btoa: undefined };
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox);

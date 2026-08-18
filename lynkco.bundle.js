@@ -1,13 +1,12 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260818-refactor13
+ * v20260818-refactor14
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
  */
 "use strict";
 
-"use strict";
 
 /* ---------- 字节/字符串工具 ---------- */
 
@@ -314,7 +313,6 @@ function createNonce() {
 }
 
 
-"use strict";
 
 const H5_SIGNATURE_HEADERS = "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method";
 const NATIVE_SIGNATURE_HEADERS = "x-ca-nonce,x-ca-key,x-ca-timestamp";
@@ -405,7 +403,7 @@ function buildH5SignString(input) {
  *   xCaKey, nonce, timestamp, date,
  *   extraCaHeaders: { name: value } 额外的参与签名的小写 x-ca-* 头
  * }
- * @returns {object} { signString, contentMd5, caHeaders(参与签名的头, 有序) }
+ * @returns {object} { signString, contentMd5 }
  */
 function buildNativeSignString(input) {
   const bodyText = input.body == null ? "" : String(input.body);
@@ -437,7 +435,6 @@ function buildNativeSignString(input) {
   return {
     signString: lines.join("\n"),
     contentMd5,
-    caHeaders,
   };
 }
 
@@ -467,7 +464,6 @@ function buildNativeSignedHeaders(input) {
 }
 
 
-"use strict";
 
 /* 领克网关密钥表（X-Ca-Key → AppSecret）。
  * 2026-07 轮换后新 key 为 203760416；旧 key 204644386 已 403，保留作回退。
@@ -509,20 +505,36 @@ const DEFAULT_CONFIG = {
   nativeExtraCaHeaders: {},
 };
 
+/** 解析 "?a=1&b=2" 形式文本为对象（URL query / 表单体 / 参数串）。
+ * options.decode=false 时不做转义解码（参数串形态，保持原 parseArgument 行为）。 */
+function parseQueryString(text, options) {
+  const result = {};
+  const query = String(text || "").replace(/^\?/, "");
+  if (!query) return result;
+  const decodeValues = !options || options.decode !== false;
+  query.split("&").forEach((entry) => {
+    if (!entry) return;
+    const parts = entry.split("=");
+    const key = (parts.shift() || "").trim();
+    if (!key) return;
+    const value = parts.join("=");
+    if (!decodeValues) {
+      result[key] = value.trim();
+      return;
+    }
+    try {
+      result[decodeURIComponent(key)] = decodeURIComponent(value);
+    } catch (error) {
+      result[key] = value;
+    }
+  });
+  return result;
+}
+
 function parseArgument(argument) {
   if (!argument) return {};
   if (typeof argument === "object") return argument; // [Argument] 控件对象形态
-  return String(argument)
-    .split("&")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .reduce((accumulator, entry) => {
-      const parts = entry.split("=");
-      const key = (parts.shift() || "").trim();
-      if (!key) return accumulator;
-      accumulator[key] = parts.join("=").trim();
-      return accumulator;
-    }, {});
+  return parseQueryString(argument, { decode: false }); // "key=value&key2=value2" 字符串形态
 }
 
 function truthyFlag(value, defaultValue) {
@@ -577,12 +589,20 @@ function buildShareUrl(articleId) {
 }
 
 
-"use strict";
 
 const TOKEN_STATE_KEY = "lynkco.share.tokenState";
 const DAILY_STATE_KEY = "lynkco.share.dailyState";
-const LAST_RESULT_KEY = "lynkco.share.lastResult";
 const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
+
+/** 统一的容错写入（$persistentStore.write 失败不阻断流程） */
+function safeWrite(store, key, value) {
+  if (!store || !store.write) return;
+  try {
+    store.write(value, key);
+  } catch (error) {
+    console.log("LynkCo store write failed: " + error.message);
+  }
+}
 
 function emptyTokenState() {
   return {
@@ -616,12 +636,7 @@ function readTokenState(store) {
 }
 
 function writeTokenState(store, tokenState) {
-  if (!store || !store.write) return;
-  try {
-    store.write(serializeTokenState(tokenState), TOKEN_STATE_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
+  safeWrite(store, TOKEN_STATE_KEY, serializeTokenState(tokenState));
 }
 
 function hasTokenState(tokenState) {
@@ -651,21 +666,7 @@ function readDailyState(store) {
 }
 
 function writeDailyState(store, state) {
-  if (!store || !store.write) return;
-  try {
-    store.write(JSON.stringify(state), DAILY_STATE_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
-}
-
-function writeLastResult(store, summary) {
-  if (!store || !store.write) return;
-  try {
-    store.write(String(summary), LAST_RESULT_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
+  safeWrite(store, DAILY_STATE_KEY, JSON.stringify(state));
 }
 
 /** 本地日期键 YYYY-MM-DD（东八区） */
@@ -691,32 +692,17 @@ function readStoredShareValidation(store) {
 }
 
 function writeStoredShareValidation(store, validation) {
-  if (!store || !store.write || !validation || !validation.certifyId) return;
-  try {
-    store.write(JSON.stringify({
-      capturedAt: validation.capturedAt || new Date().toISOString(),
-      certifyId: validation.certifyId,
-      challenge: validation.challenge || "",
-      riskValidateInfo: validation.riskValidateInfo || "",
-      source: validation.source || "security-config",
-    }), SHARE_VALIDATION_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
-}
-
-function clearStoredShareValidation(store) {
-  if (!store || !store.write) return;
-  try {
-    store.write("", SHARE_VALIDATION_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
+  if (!validation || !validation.certifyId) return;
+  safeWrite(store, SHARE_VALIDATION_KEY, JSON.stringify({
+    capturedAt: validation.capturedAt || new Date().toISOString(),
+    certifyId: validation.certifyId,
+    challenge: validation.challenge || "",
+    riskValidateInfo: validation.riskValidateInfo || "",
+    source: validation.source || "security-config",
+  }));
 }
 
 
-
-"use strict";
 
 function postNotification(notification, title, content, debugInfo) {
   try {
@@ -744,7 +730,6 @@ function summarizeTokenState(tokenState) {
 }
 
 
-"use strict";
 
 const AUTH_HOSTS = [
   "h5-api.lynkco.com",
@@ -821,11 +806,18 @@ function assertSuccessfulHttp(response, label, payload, data) {
   if (businessFailureMessage) throw new Error(label + " failed: " + businessFailureMessage);
 }
 
+/** 截断长文本（用于错误信息/诊断摘要） */
+function truncate(text, maxLength) {
+  const value = String(text || "");
+  const max = maxLength || 200;
+  return value.length > max ? value.slice(0, max - 3) + "..." : value;
+}
+
 function summarizeBody(data) {
   if (typeof data !== "string") return "";
   const trimmed = data.trim();
   if (!trimmed) return "";
-  return trimmed.length > 200 ? trimmed.slice(0, 197) + "..." : trimmed;
+  return truncate(trimmed, 200);
 }
 
 /** 已签到提示（无论以什么路径返回都算完成） */
@@ -982,6 +974,22 @@ async function nativeRequest(context, options) {
 
 /* ---------------- 刷新 token ---------------- */
 
+/** 从响应中提取 centerTokenDto；无效时返回 null。fallbacks 提供旧值兜底（refreshToken 等） */
+function extractCenterTokenDto(payload, fallbacks) {
+  const dto = payload && payload.data && payload.data.centerTokenDto;
+  if (!dto || !dto.token) return null;
+  return {
+    token: dto.token,
+    refreshToken: dto.refreshToken || fallbacks.refreshToken,
+    expireAt: dto.expireAt || 0,
+    oauthAccessToken: fallbacks.oauthAccessToken || "",
+    oauthRefreshToken: fallbacks.oauthRefreshToken || "",
+    authorization: fallbacks.authorization || "",
+    deviceId: fallbacks.deviceId || "",
+    deviceType: fallbacks.deviceType || "IOS",
+  };
+}
+
 /**
  * 用 refreshToken 换新 token。多域尝试；每域先 APPCODE 静态认证，失败回退原生签名。
  * @returns {object|null} { token, refreshToken, expireAt, oauthAccessToken, oauthRefreshToken, authorization } 或 null
@@ -995,6 +1003,14 @@ async function refreshToken(context, refreshTokenValue) {
     "deviceType=" + encodeURIComponent(tokenState.deviceType || config.deviceType || "IOS"),
     "appVersion=" + encodeURIComponent(config.appVersion || "4.2.3"),
   ].join("&");
+  const fallbacks = {
+    refreshToken: refreshTokenValue,
+    oauthAccessToken: tokenState.oauthAccessToken || "",
+    oauthRefreshToken: tokenState.oauthRefreshToken || "",
+    authorization: tokenState.authorization || "",
+    deviceId: tokenState.deviceId || config.deviceId || "",
+    deviceType: tokenState.deviceType || config.deviceType || "IOS",
+  };
 
   const lastErrors = [];
   for (let i = 0; i < AUTH_HOSTS.length; i += 1) {
@@ -1002,88 +1018,69 @@ async function refreshToken(context, refreshTokenValue) {
     const uri = "/auth/login/refresh?" + query;
     const url = "https://" + host + uri;
 
-    // 1) APPCODE 静态认证
-    try {
-      const result = await requestAsync(context.httpClient, "get", {
-        method: "GET",
-        url,
-        headers: Object.assign(
-          {
-            "User-Agent": H5_UA,
-            "Content-Type": "application/json",
-            Accept: "*/*",
-            "X-Ca-Key": config.xCaKey,
-          },
-          { authorization: "APPCODE " + config.appCode },
-        ),
-      });
-      const payload = parseJson(result.data);
-      const centerTokenDto = payload && payload.data && payload.data.centerTokenDto;
-      if (centerTokenDto && centerTokenDto.token) {
-        return {
-          token: centerTokenDto.token,
-          refreshToken: centerTokenDto.refreshToken || refreshTokenValue,
-          expireAt: centerTokenDto.expireAt || 0,
-          oauthAccessToken: tokenState.oauthAccessToken || "",
-          oauthRefreshToken: tokenState.oauthRefreshToken || "",
-          authorization: tokenState.authorization || "",
-          deviceId: tokenState.deviceId || config.deviceId || "",
-          deviceType: tokenState.deviceType || config.deviceType || "IOS",
-        };
-      }
-      lastErrors.push(host + " appcode: " + summarizeBody(result.data));
-    } catch (error) {
-      lastErrors.push(host + " appcode: " + error.message);
-    }
-
-    // 2) 原生签名认证
-    try {
-      const attemptContext = freshRequestContext(context);
-      const signed = buildNativeSignString({
-        method: "GET",
-        uri,
-        body: "",
-        xCaKey: config.xCaKey,
-        nonce: attemptContext.nonce,
-        timestamp: attemptContext.timestamp,
-        extraCaHeaders: config.nativeExtraCaHeaders,
-      });
-      const signature = signBase64HmacSha256(config.appSecret, signed.signString);
-      const result = await requestAsync(context.httpClient, "get", {
-        method: "GET",
-        url,
-        headers: Object.assign(
-          {
-            "User-Agent": NATIVE_UA,
-            "Content-Type": "application/json",
-            Accept: "*/*",
-          },
-          buildNativeSignedHeaders({
+    // 每域两种认证尝试：APPCODE 静态认证 → 原生签名（两种返回解析共用 extractCenterTokenDto）
+    const attempts = [
+      {
+        label: host + " appcode",
+        build: () => ({
+          method: "GET",
+          url,
+          headers: Object.assign(
+            {
+              "User-Agent": H5_UA,
+              "Content-Type": "application/json",
+              Accept: "*/*",
+              "X-Ca-Key": config.xCaKey,
+            },
+            { authorization: "APPCODE " + config.appCode },
+          ),
+        }),
+      },
+      {
+        label: host + " native",
+        build: () => {
+          const attemptContext = freshRequestContext(context);
+          const signed = buildNativeSignString({
+            method: "GET",
+            uri,
+            body: "",
             xCaKey: config.xCaKey,
             nonce: attemptContext.nonce,
             timestamp: attemptContext.timestamp,
-            signature,
-            contentMd5: signed.contentMd5,
-          }),
-        ),
-      });
-      const payload = parseJson(result.data);
-      const centerTokenDto = payload && payload.data && payload.data.centerTokenDto;
-      if (centerTokenDto && centerTokenDto.token) {
-        return {
-          token: centerTokenDto.token,
-          refreshToken: centerTokenDto.refreshToken || refreshTokenValue,
-          expireAt: centerTokenDto.expireAt || 0,
-          oauthAccessToken: tokenState.oauthAccessToken || "",
-          oauthRefreshToken: tokenState.oauthRefreshToken || "",
-          authorization: tokenState.authorization || "",
-          deviceId: tokenState.deviceId || config.deviceId || "",
-          deviceType: tokenState.deviceType || config.deviceType || "IOS",
-        };
+            extraCaHeaders: config.nativeExtraCaHeaders,
+          });
+          return {
+            method: "GET",
+            url,
+            headers: Object.assign(
+              {
+                "User-Agent": NATIVE_UA,
+                "Content-Type": "application/json",
+                Accept: "*/*",
+              },
+              buildNativeSignedHeaders({
+                xCaKey: config.xCaKey,
+                nonce: attemptContext.nonce,
+                timestamp: attemptContext.timestamp,
+                signature: signBase64HmacSha256(config.appSecret, signed.signString),
+                contentMd5: signed.contentMd5,
+              }),
+            ),
+          };
+        },
+      },
+    ];
+
+    for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+      const attempt = attempts[attemptIndex];
+      try {
+        const result = await requestAsync(context.httpClient, "get", attempt.build());
+        const refreshed = extractCenterTokenDto(parseJson(result.data), fallbacks);
+        if (refreshed) return refreshed;
+        lastErrors.push(attempt.label + ": " + summarizeBody(result.data));
+      } catch (error) {
+        lastErrors.push(attempt.label + ": " + error.message);
       }
-      lastErrors.push(host + " native: " + summarizeBody(result.data));
-    } catch (error) {
-      lastErrors.push(host + " native: " + error.message);
     }
   }
 
@@ -1113,16 +1110,6 @@ async function postSignUpgrade(context) {
     body: "{}",
     label: "Sign upgrade",
     extraHeaders: { use_security: "true" },
-  });
-}
-
-/** 连续签到天数/补签卡（H5 签名） */
-async function getContinueDaysAndSignCard(context) {
-  return h5Request(context, {
-    method: "GET",
-    host: BUSINESS_HOST,
-    uri: "/up/api/v1/userReward/getContinueDaysAndSignCard",
-    label: "Continue days",
   });
 }
 
@@ -1265,7 +1252,6 @@ async function getFirstArticle(context) {
 }
 
 
-"use strict";
 
 /* ---------------- 签到状态解析（day/info 响应） ---------------- */
 
@@ -1402,7 +1388,7 @@ async function runSignTask(context, report) {
   try {
     const upgradeResult = await postSignUpgrade(context);
     const payload = upgradeResult.payload;
-    const message = payload && (payload.message || payload.msg || "");
+    const message = getApiMessage(payload);
     if (isAlreadySignedMessage(message) || isAlreadySignedMessage(upgradeResult.data)) {
       report.sign = { ok: true, already: true };
       return { ok: true, already: true };
@@ -1503,33 +1489,34 @@ function extractPoint(payload) {
 async function runShareTask(context, report) {
   const { config } = context;
 
+  // 构造本次分享的配置快照（避免原地改写共享 context 的隐式副作用）
   let articleId = config.articleId;
+  const taskConfig = Object.assign({}, config);
   try {
-    if (!articleId) {
-      articleId = await getFirstArticle(context);
-      context.config = Object.assign({}, config, { articleId });
+    if (articleId) {
+      taskConfig.shareContentURL = buildShareUrl(articleId);
     } else {
-      context.config = Object.assign({}, config, {
-        shareContentURL: buildShareUrl(articleId),
-      });
+      articleId = await getFirstArticle(context);
+      taskConfig.articleId = articleId;
     }
+    const shareContext = Object.assign({}, context, { config: taskConfig });
 
     // 分享前积分
     let energyBefore = null;
     try {
-      const before = await getMyEnergy(context);
+      const before = await getMyEnergy(shareContext);
       energyBefore = extractPoint(before.payload);
     } catch (error) {
       // 积分查询失败不阻断分享
     }
 
-    const shareCode = await obtainShareCode(context);
-    await postShareReporting(context, shareCode);
+    const shareCode = await obtainShareCode(shareContext);
+    await postShareReporting(shareContext, shareCode);
 
     // 分享后积分对比（即时查询，仅作附加报告）
     let energyAfter = null;
     try {
-      const after = await getMyEnergy(context);
+      const after = await getMyEnergy(shareContext);
       energyAfter = extractPoint(after.payload);
     } catch (error) {
       // 忽略
@@ -1547,12 +1534,13 @@ async function runShareTask(context, report) {
     // 兜底文章重试
     if (config.fallbackArticleId && config.articleId !== config.fallbackArticleId) {
       try {
-        context.config = Object.assign({}, context.config, {
+        const fallbackConfig = Object.assign({}, taskConfig, {
           articleId: config.fallbackArticleId,
           shareContentURL: buildShareUrl(config.fallbackArticleId),
         });
-        const shareCode = await obtainShareCode(context);
-        await postShareReporting(context, shareCode);
+        const fallbackContext = Object.assign({}, context, { config: fallbackConfig });
+        const shareCode = await obtainShareCode(fallbackContext);
+        await postShareReporting(fallbackContext, shareCode);
         report.shareCode = shareCode;
         report.shareUrl = buildShareUrl(config.fallbackArticleId);
         report.share = { ok: true, fallback: true, shareUrl: report.shareUrl };
@@ -1580,12 +1568,7 @@ function summarizeTask(name, result) {
     }
     return name + ": ok";
   }
-  return name + ": failed (" + shorten(result.message) + ")";
-}
-
-function shorten(text) {
-  const value = String(text || "");
-  return value.length > 160 ? value.slice(0, 157) + "..." : value;
+  return name + ": failed (" + truncate(result.message, 160) + ")";
 }
 
 function buildSummary(report, config) {
@@ -1636,13 +1619,13 @@ async function runDailyTasks(context) {
   if (config.debug) {
     const details = [];
     if (report.refreshError) {
-      details.push("refresh=" + shorten(report.refreshError.message));
+      details.push("refresh=" + truncate(report.refreshError.message, 160));
     }
     if (report.signError) {
-      details.push("signErr=" + shorten(report.signError.message));
+      details.push("signErr=" + truncate(report.signError.message, 160));
     }
     if (report.shareError) {
-      details.push("shareErr=" + shorten(report.shareError.message));
+      details.push("shareErr=" + truncate(report.shareError.message, 160));
     }
     if (report.energyBefore != null || report.energyAfter != null) {
       details.push("energy=" + report.energyBefore + "->" + report.energyAfter);
@@ -1659,7 +1642,6 @@ async function runDailyTasks(context) {
 }
 
 
-"use strict";
 
 const CAPTURE_FIELD_ALIASES = {
   refreshtoken: "refreshToken",
@@ -1696,24 +1678,6 @@ function getHeader(headers, names) {
     if (normalizedNames.includes(normalizeHeaderName(key))) return headers[key] || "";
   }
   return "";
-}
-
-function parseQueryString(text) {
-  const result = {};
-  const query = String(text || "").replace(/^\?/, "");
-  if (!query) return result;
-  query.split("&").forEach((entry) => {
-    if (!entry) return;
-    const parts = entry.split("=");
-    const key = (parts.shift() || "").trim();
-    if (!key) return;
-    try {
-      result[decodeURIComponent(key)] = decodeURIComponent(parts.join("="));
-    } catch (error) {
-      result[key] = parts.join("=");
-    }
-  });
-  return result;
 }
 
 function setCapturedField(result, key, value) {
@@ -1802,10 +1766,7 @@ function capturedFingerprint(fields) {
 function handleCapture(input) {
   const { config, request, response, store, notification } = input;
   const captured = extractCaptureFields(request, response);
-  const hasCaptured = Boolean(
-    captured.refreshToken || captured.token ||
-    captured.oauthAccessToken || captured.oauthRefreshToken || captured.authorization,
-  );
+  const hasCaptured = hasTokenState(captured);
   if (!hasCaptured) {
     if (config.debug) {
       console.log("LynkCo no capturable fields in traffic");
@@ -1888,7 +1849,6 @@ function handleCron(input, mode) {
         success: summary.includes("Sign: ok") && (!config.shareEnabled || summary.includes("Share: ok")),
         attempt: summary,
       });
-      writeLastResult(store, summary);
       postNotification(notification, "LynkCo Daily", summary, diagnostic);
       return { summary, diagnostic };
     })

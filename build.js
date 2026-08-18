@@ -14,25 +14,17 @@
 
 const fs = require("fs");
 const path = require("path");
+const { CORE_MODULES, readModule } = require("./lib/modules");
 
 const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const OUT_DIR = ROOT;
 
-const BUNDLE_VERSION = "v20260818-refactor13";
+const BUNDLE_VERSION = "v20260818-refactor14";
 const PLUGIN_DATE = "2026-08-18";
 
-/* 模块拼接顺序（依赖在前） */
-const MODULES = [
-  "crypto.js",
-  "signature.js",
-  "config.js",
-  "store.js",
-  "notify.js",
-  "api.js",
-  "tasks.js",
-  "main.js",
-];
+/* 模块拼接顺序（依赖在前；main.js 为入口分发，仅 bundle 需要） */
+const MODULES = CORE_MODULES.concat(["main.js"]);
 
 /* 插件参数（[Argument] 控件 + 脚本 argument 占位符的单一来源）。
  * type: input / select / switch；default：input 为默认字符串，select 为可选项（首项为默认），switch 为布尔。
@@ -77,20 +69,6 @@ function buildCapturePattern() {
   );
 }
 
-function readModule(name) {
-  const file = path.join(SRC, name);
-  const lines = fs.readFileSync(file, "utf8").split("\n");
-  // 移除模块顶部的 /** ... */ 注释头（以独立一行的 " */" 为结束标志，
-  // 不能用正则匹配首个 */，注释内容中的 */* 会提前截断）
-  let start = 0;
-  if (lines.length > 0 && lines[0].trim().startsWith("/**")) {
-    let end = 1;
-    while (end < lines.length && lines[end].trim() !== "*/") end += 1;
-    start = Math.min(end + 1, lines.length);
-  }
-  return lines.slice(start).join("\n") + "\n";
-}
-
 function buildBundle() {
   const header = `/**
  * Lynk & Co Auto Sign & Share — Loon bundle
@@ -102,7 +80,7 @@ function buildBundle() {
 "use strict";
 
 `;
-  const body = MODULES.map(readModule).join("\n");
+  const body = MODULES.map((name) => readModule(SRC, name)).join("\n");
   return header + body;
 }
 

@@ -105,7 +105,7 @@ function buildH5SignString(input) {
  *   xCaKey, nonce, timestamp, date,
  *   extraCaHeaders: { name: value } 额外的参与签名的小写 x-ca-* 头
  * }
- * @returns {object} { signString, contentMd5, caHeaders(参与签名的头, 有序) }
+ * @returns {object} { signString, contentMd5 }
  */
 function buildNativeSignString(input) {
   const bodyText = input.body == null ? "" : String(input.body);
@@ -137,7 +137,6 @@ function buildNativeSignString(input) {
   return {
     signString: lines.join("\n"),
     contentMd5,
-    caHeaders,
   };
 }
 

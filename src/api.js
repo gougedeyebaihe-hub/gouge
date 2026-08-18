@@ -86,11 +86,18 @@ function assertSuccessfulHttp(response, label, payload, data) {
   if (businessFailureMessage) throw new Error(label + " failed: " + businessFailureMessage);
 }
 
+/** 截断长文本（用于错误信息/诊断摘要） */
+function truncate(text, maxLength) {
+  const value = String(text || "");
+  const max = maxLength || 200;
+  return value.length > max ? value.slice(0, max - 3) + "..." : value;
+}
+
 function summarizeBody(data) {
   if (typeof data !== "string") return "";
   const trimmed = data.trim();
   if (!trimmed) return "";
-  return trimmed.length > 200 ? trimmed.slice(0, 197) + "..." : trimmed;
+  return truncate(trimmed, 200);
 }
 
 /** 已签到提示（无论以什么路径返回都算完成） */
@@ -247,6 +254,22 @@ async function nativeRequest(context, options) {
 
 /* ---------------- 刷新 token ---------------- */
 
+/** 从响应中提取 centerTokenDto；无效时返回 null。fallbacks 提供旧值兜底（refreshToken 等） */
+function extractCenterTokenDto(payload, fallbacks) {
+  const dto = payload && payload.data && payload.data.centerTokenDto;
+  if (!dto || !dto.token) return null;
+  return {
+    token: dto.token,
+    refreshToken: dto.refreshToken || fallbacks.refreshToken,
+    expireAt: dto.expireAt || 0,
+    oauthAccessToken: fallbacks.oauthAccessToken || "",
+    oauthRefreshToken: fallbacks.oauthRefreshToken || "",
+    authorization: fallbacks.authorization || "",
+    deviceId: fallbacks.deviceId || "",
+    deviceType: fallbacks.deviceType || "IOS",
+  };
+}
+
 /**
  * 用 refreshToken 换新 token。多域尝试；每域先 APPCODE 静态认证，失败回退原生签名。
  * @returns {object|null} { token, refreshToken, expireAt, oauthAccessToken, oauthRefreshToken, authorization } 或 null
@@ -260,6 +283,14 @@ async function refreshToken(context, refreshTokenValue) {
     "deviceType=" + encodeURIComponent(tokenState.deviceType || config.deviceType || "IOS"),
     "appVersion=" + encodeURIComponent(config.appVersion || "4.2.3"),
   ].join("&");
+  const fallbacks = {
+    refreshToken: refreshTokenValue,
+    oauthAccessToken: tokenState.oauthAccessToken || "",
+    oauthRefreshToken: tokenState.oauthRefreshToken || "",
+    authorization: tokenState.authorization || "",
+    deviceId: tokenState.deviceId || config.deviceId || "",
+    deviceType: tokenState.deviceType || config.deviceType || "IOS",
+  };
 
   const lastErrors = [];
   for (let i = 0; i < AUTH_HOSTS.length; i += 1) {
@@ -267,88 +298,69 @@ async function refreshToken(context, refreshTokenValue) {
     const uri = "/auth/login/refresh?" + query;
     const url = "https://" + host + uri;
 
-    // 1) APPCODE 静态认证
-    try {
-      const result = await requestAsync(context.httpClient, "get", {
-        method: "GET",
-        url,
-        headers: Object.assign(
-          {
-            "User-Agent": H5_UA,
-            "Content-Type": "application/json",
-            Accept: "*/*",
-            "X-Ca-Key": config.xCaKey,
-          },
-          { authorization: "APPCODE " + config.appCode },
-        ),
-      });
-      const payload = parseJson(result.data);
-      const centerTokenDto = payload && payload.data && payload.data.centerTokenDto;
-      if (centerTokenDto && centerTokenDto.token) {
-        return {
-          token: centerTokenDto.token,
-          refreshToken: centerTokenDto.refreshToken || refreshTokenValue,
-          expireAt: centerTokenDto.expireAt || 0,
-          oauthAccessToken: tokenState.oauthAccessToken || "",
-          oauthRefreshToken: tokenState.oauthRefreshToken || "",
-          authorization: tokenState.authorization || "",
-          deviceId: tokenState.deviceId || config.deviceId || "",
-          deviceType: tokenState.deviceType || config.deviceType || "IOS",
-        };
-      }
-      lastErrors.push(host + " appcode: " + summarizeBody(result.data));
-    } catch (error) {
-      lastErrors.push(host + " appcode: " + error.message);
-    }
-
-    // 2) 原生签名认证
-    try {
-      const attemptContext = freshRequestContext(context);
-      const signed = buildNativeSignString({
-        method: "GET",
-        uri,
-        body: "",
-        xCaKey: config.xCaKey,
-        nonce: attemptContext.nonce,
-        timestamp: attemptContext.timestamp,
-        extraCaHeaders: config.nativeExtraCaHeaders,
-      });
-      const signature = signBase64HmacSha256(config.appSecret, signed.signString);
-      const result = await requestAsync(context.httpClient, "get", {
-        method: "GET",
-        url,
-        headers: Object.assign(
-          {
-            "User-Agent": NATIVE_UA,
-            "Content-Type": "application/json",
-            Accept: "*/*",
-          },
-          buildNativeSignedHeaders({
+    // 每域两种认证尝试：APPCODE 静态认证 → 原生签名（两种返回解析共用 extractCenterTokenDto）
+    const attempts = [
+      {
+        label: host + " appcode",
+        build: () => ({
+          method: "GET",
+          url,
+          headers: Object.assign(
+            {
+              "User-Agent": H5_UA,
+              "Content-Type": "application/json",
+              Accept: "*/*",
+              "X-Ca-Key": config.xCaKey,
+            },
+            { authorization: "APPCODE " + config.appCode },
+          ),
+        }),
+      },
+      {
+        label: host + " native",
+        build: () => {
+          const attemptContext = freshRequestContext(context);
+          const signed = buildNativeSignString({
+            method: "GET",
+            uri,
+            body: "",
             xCaKey: config.xCaKey,
             nonce: attemptContext.nonce,
             timestamp: attemptContext.timestamp,
-            signature,
-            contentMd5: signed.contentMd5,
-          }),
-        ),
-      });
-      const payload = parseJson(result.data);
-      const centerTokenDto = payload && payload.data && payload.data.centerTokenDto;
-      if (centerTokenDto && centerTokenDto.token) {
-        return {
-          token: centerTokenDto.token,
-          refreshToken: centerTokenDto.refreshToken || refreshTokenValue,
-          expireAt: centerTokenDto.expireAt || 0,
-          oauthAccessToken: tokenState.oauthAccessToken || "",
-          oauthRefreshToken: tokenState.oauthRefreshToken || "",
-          authorization: tokenState.authorization || "",
-          deviceId: tokenState.deviceId || config.deviceId || "",
-          deviceType: tokenState.deviceType || config.deviceType || "IOS",
-        };
+            extraCaHeaders: config.nativeExtraCaHeaders,
+          });
+          return {
+            method: "GET",
+            url,
+            headers: Object.assign(
+              {
+                "User-Agent": NATIVE_UA,
+                "Content-Type": "application/json",
+                Accept: "*/*",
+              },
+              buildNativeSignedHeaders({
+                xCaKey: config.xCaKey,
+                nonce: attemptContext.nonce,
+                timestamp: attemptContext.timestamp,
+                signature: signBase64HmacSha256(config.appSecret, signed.signString),
+                contentMd5: signed.contentMd5,
+              }),
+            ),
+          };
+        },
+      },
+    ];
+
+    for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+      const attempt = attempts[attemptIndex];
+      try {
+        const result = await requestAsync(context.httpClient, "get", attempt.build());
+        const refreshed = extractCenterTokenDto(parseJson(result.data), fallbacks);
+        if (refreshed) return refreshed;
+        lastErrors.push(attempt.label + ": " + summarizeBody(result.data));
+      } catch (error) {
+        lastErrors.push(attempt.label + ": " + error.message);
       }
-      lastErrors.push(host + " native: " + summarizeBody(result.data));
-    } catch (error) {
-      lastErrors.push(host + " native: " + error.message);
     }
   }
 
@@ -378,16 +390,6 @@ async function postSignUpgrade(context) {
     body: "{}",
     label: "Sign upgrade",
     extraHeaders: { use_security: "true" },
-  });
-}
-
-/** 连续签到天数/补签卡（H5 签名） */
-async function getContinueDaysAndSignCard(context) {
-  return h5Request(context, {
-    method: "GET",
-    host: BUSINESS_HOST,
-    uri: "/up/api/v1/userReward/getContinueDaysAndSignCard",
-    label: "Continue days",
   });
 }
 

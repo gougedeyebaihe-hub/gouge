@@ -140,7 +140,7 @@ async function runSignTask(context, report) {
   try {
     const upgradeResult = await postSignUpgrade(context);
     const payload = upgradeResult.payload;
-    const message = payload && (payload.message || payload.msg || "");
+    const message = getApiMessage(payload);
     if (isAlreadySignedMessage(message) || isAlreadySignedMessage(upgradeResult.data)) {
       report.sign = { ok: true, already: true };
       return { ok: true, already: true };
@@ -241,33 +241,34 @@ function extractPoint(payload) {
 async function runShareTask(context, report) {
   const { config } = context;
 
+  // 构造本次分享的配置快照（避免原地改写共享 context 的隐式副作用）
   let articleId = config.articleId;
+  const taskConfig = Object.assign({}, config);
   try {
-    if (!articleId) {
-      articleId = await getFirstArticle(context);
-      context.config = Object.assign({}, config, { articleId });
+    if (articleId) {
+      taskConfig.shareContentURL = buildShareUrl(articleId);
     } else {
-      context.config = Object.assign({}, config, {
-        shareContentURL: buildShareUrl(articleId),
-      });
+      articleId = await getFirstArticle(context);
+      taskConfig.articleId = articleId;
     }
+    const shareContext = Object.assign({}, context, { config: taskConfig });
 
     // 分享前积分
     let energyBefore = null;
     try {
-      const before = await getMyEnergy(context);
+      const before = await getMyEnergy(shareContext);
       energyBefore = extractPoint(before.payload);
     } catch (error) {
       // 积分查询失败不阻断分享
     }
 
-    const shareCode = await obtainShareCode(context);
-    await postShareReporting(context, shareCode);
+    const shareCode = await obtainShareCode(shareContext);
+    await postShareReporting(shareContext, shareCode);
 
     // 分享后积分对比（即时查询，仅作附加报告）
     let energyAfter = null;
     try {
-      const after = await getMyEnergy(context);
+      const after = await getMyEnergy(shareContext);
       energyAfter = extractPoint(after.payload);
     } catch (error) {
       // 忽略
@@ -285,12 +286,13 @@ async function runShareTask(context, report) {
     // 兜底文章重试
     if (config.fallbackArticleId && config.articleId !== config.fallbackArticleId) {
       try {
-        context.config = Object.assign({}, context.config, {
+        const fallbackConfig = Object.assign({}, taskConfig, {
           articleId: config.fallbackArticleId,
           shareContentURL: buildShareUrl(config.fallbackArticleId),
         });
-        const shareCode = await obtainShareCode(context);
-        await postShareReporting(context, shareCode);
+        const fallbackContext = Object.assign({}, context, { config: fallbackConfig });
+        const shareCode = await obtainShareCode(fallbackContext);
+        await postShareReporting(fallbackContext, shareCode);
         report.shareCode = shareCode;
         report.shareUrl = buildShareUrl(config.fallbackArticleId);
         report.share = { ok: true, fallback: true, shareUrl: report.shareUrl };
@@ -318,12 +320,7 @@ function summarizeTask(name, result) {
     }
     return name + ": ok";
   }
-  return name + ": failed (" + shorten(result.message) + ")";
-}
-
-function shorten(text) {
-  const value = String(text || "");
-  return value.length > 160 ? value.slice(0, 157) + "..." : value;
+  return name + ": failed (" + truncate(result.message, 160) + ")";
 }
 
 function buildSummary(report, config) {
@@ -374,13 +371,13 @@ async function runDailyTasks(context) {
   if (config.debug) {
     const details = [];
     if (report.refreshError) {
-      details.push("refresh=" + shorten(report.refreshError.message));
+      details.push("refresh=" + truncate(report.refreshError.message, 160));
     }
     if (report.signError) {
-      details.push("signErr=" + shorten(report.signError.message));
+      details.push("signErr=" + truncate(report.signError.message, 160));
     }
     if (report.shareError) {
-      details.push("shareErr=" + shorten(report.shareError.message));
+      details.push("shareErr=" + truncate(report.shareError.message, 160));
     }
     if (report.energyBefore != null || report.energyAfter != null) {
       details.push("energy=" + report.energyBefore + "->" + report.energyAfter);

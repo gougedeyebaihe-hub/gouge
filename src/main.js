@@ -49,24 +49,6 @@ function getHeader(headers, names) {
   return "";
 }
 
-function parseQueryString(text) {
-  const result = {};
-  const query = String(text || "").replace(/^\?/, "");
-  if (!query) return result;
-  query.split("&").forEach((entry) => {
-    if (!entry) return;
-    const parts = entry.split("=");
-    const key = (parts.shift() || "").trim();
-    if (!key) return;
-    try {
-      result[decodeURIComponent(key)] = decodeURIComponent(parts.join("="));
-    } catch (error) {
-      result[key] = parts.join("=");
-    }
-  });
-  return result;
-}
-
 function setCapturedField(result, key, value) {
   const canonical = CAPTURE_FIELD_ALIASES[normalizeFieldKey(key)];
   if (canonical && value != null && String(value) && !result[canonical]) {
@@ -153,10 +135,7 @@ function capturedFingerprint(fields) {
 function handleCapture(input) {
   const { config, request, response, store, notification } = input;
   const captured = extractCaptureFields(request, response);
-  const hasCaptured = Boolean(
-    captured.refreshToken || captured.token ||
-    captured.oauthAccessToken || captured.oauthRefreshToken || captured.authorization,
-  );
+  const hasCaptured = hasTokenState(captured);
   if (!hasCaptured) {
     if (config.debug) {
       console.log("LynkCo no capturable fields in traffic");
@@ -239,7 +218,6 @@ function handleCron(input, mode) {
         success: summary.includes("Sign: ok") && (!config.shareEnabled || summary.includes("Share: ok")),
         attempt: summary,
       });
-      writeLastResult(store, summary);
       postNotification(notification, "LynkCo Daily", summary, diagnostic);
       return { summary, diagnostic };
     })

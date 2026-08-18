@@ -5,8 +5,17 @@
 
 const TOKEN_STATE_KEY = "lynkco.share.tokenState";
 const DAILY_STATE_KEY = "lynkco.share.dailyState";
-const LAST_RESULT_KEY = "lynkco.share.lastResult";
 const SHARE_VALIDATION_KEY = "lynkco.share.shareValidation";
+
+/** 统一的容错写入（$persistentStore.write 失败不阻断流程） */
+function safeWrite(store, key, value) {
+  if (!store || !store.write) return;
+  try {
+    store.write(value, key);
+  } catch (error) {
+    console.log("LynkCo store write failed: " + error.message);
+  }
+}
 
 function emptyTokenState() {
   return {
@@ -40,12 +49,7 @@ function readTokenState(store) {
 }
 
 function writeTokenState(store, tokenState) {
-  if (!store || !store.write) return;
-  try {
-    store.write(serializeTokenState(tokenState), TOKEN_STATE_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
+  safeWrite(store, TOKEN_STATE_KEY, serializeTokenState(tokenState));
 }
 
 function hasTokenState(tokenState) {
@@ -75,21 +79,7 @@ function readDailyState(store) {
 }
 
 function writeDailyState(store, state) {
-  if (!store || !store.write) return;
-  try {
-    store.write(JSON.stringify(state), DAILY_STATE_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
-}
-
-function writeLastResult(store, summary) {
-  if (!store || !store.write) return;
-  try {
-    store.write(String(summary), LAST_RESULT_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
+  safeWrite(store, DAILY_STATE_KEY, JSON.stringify(state));
 }
 
 /** 本地日期键 YYYY-MM-DD（东八区） */
@@ -115,26 +105,12 @@ function readStoredShareValidation(store) {
 }
 
 function writeStoredShareValidation(store, validation) {
-  if (!store || !store.write || !validation || !validation.certifyId) return;
-  try {
-    store.write(JSON.stringify({
-      capturedAt: validation.capturedAt || new Date().toISOString(),
-      certifyId: validation.certifyId,
-      challenge: validation.challenge || "",
-      riskValidateInfo: validation.riskValidateInfo || "",
-      source: validation.source || "security-config",
-    }), SHARE_VALIDATION_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
+  if (!validation || !validation.certifyId) return;
+  safeWrite(store, SHARE_VALIDATION_KEY, JSON.stringify({
+    capturedAt: validation.capturedAt || new Date().toISOString(),
+    certifyId: validation.certifyId,
+    challenge: validation.challenge || "",
+    riskValidateInfo: validation.riskValidateInfo || "",
+    source: validation.source || "security-config",
+  }));
 }
-
-function clearStoredShareValidation(store) {
-  if (!store || !store.write) return;
-  try {
-    store.write("", SHARE_VALIDATION_KEY);
-  } catch (error) {
-    console.log("LynkCo store write failed: " + error.message);
-  }
-}
-

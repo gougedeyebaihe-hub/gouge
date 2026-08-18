@@ -76,22 +76,34 @@ function createMockHttpClient(routes) {
   return { client, calls };
 }
 
-/** 在 vm 中执行 bundle，模拟一次 Loon 脚本运行；返回 sandbox（含 __doneCalled/__doneArgs） */
-function runBundleOnce({ request, response, argument, store, notification, httpClient, script }) {
+/** 构造 Loon 沙箱基础对象（runBundleOnce / createBundleSandbox 共用） */
+function makeSandbox({ store, notification, httpClient, argument, done }) {
   const sandbox = {
     $persistentStore: store,
     $notification: notification,
     $httpClient: httpClient,
     $argument: argument || "",
-    $done: (args) => {
-      sandbox.__doneCalled = true;
-      sandbox.__doneArgs = args;
-    },
+    $done: done || (() => {}),
     console: console,
     TextEncoder: TextEncoder,
     setTimeout: setTimeout,
     URL: URL,
   };
+  return sandbox;
+}
+
+/** 在 vm 中执行 bundle，模拟一次 Loon 脚本运行；返回 sandbox（含 __doneCalled/__doneArgs） */
+function runBundleOnce({ request, response, argument, store, notification, httpClient, script }) {
+  const sandbox = makeSandbox({
+    store,
+    notification,
+    httpClient,
+    argument,
+    done: (args) => {
+      sandbox.__doneCalled = true;
+      sandbox.__doneArgs = args;
+    },
+  });
   if (request) sandbox.$request = request;
   if (response) sandbox.$response = response;
   if (script) sandbox.$script = script;
@@ -114,17 +126,12 @@ function waitFor(predicate, timeoutMs) {
 
 /** 创建加载了完整 bundle 的 vm 沙箱（用于直接引用内部函数） */
 function createBundleSandbox() {
-  const sandbox = {
-    $persistentStore: createMockStore(),
-    $notification: createMockNotification(),
-    $httpClient: createMockHttpClient([]).client,
-    $argument: "",
-    $done: () => {},
-    console: console,
-    TextEncoder: TextEncoder,
-    setTimeout: setTimeout,
-    URL: URL,
-  };
+  const sandbox = makeSandbox({
+    store: createMockStore(),
+    notification: createMockNotification(),
+    httpClient: createMockHttpClient([]).client,
+    argument: "",
+  });
   vm.createContext(sandbox);
   vm.runInContext(BUNDLE, sandbox);
   return sandbox;
@@ -136,6 +143,25 @@ const TEST_CONFIG_ARGUMENT = "refreshToken=rt-test-1&deviceId=dev-1&debug=1";
 const TEST_CONFIG_OBJECT = { refreshToken: "rt-test-1", deviceId: "dev-1", debug: true, shareEnabled: true };
 
 const FIXED_ARTICLE_ID = "2075054309774663680";
+
+/** 通用认证路由：refresh 成功 + 今日已签（shareValidation / manual 等用例复用） */
+function createAuthRoutes() {
+  return [
+    {
+      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
+      respond: () => ({
+        data: JSON.stringify({
+          code: "success",
+          data: { centerTokenDto: { token: "t2", refreshToken: "rt2", expireAt: 9999999999 } },
+        }),
+      }),
+    },
+    {
+      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
+      respond: () => ({ data: JSON.stringify({ code: "success", data: { signStatus: 1 } }) }),
+    },
+  ];
+}
 
 /** 完整签到+分享流程的 mock routes（respond 内需要 client.calls 时经 setClient 注入） */
 function createFullFlowRoutes() {
@@ -377,19 +403,7 @@ async function testShareValidationFlow() {
   const notification = createMockNotification();
 
   const routes = [
-    {
-      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
-      respond: () => ({
-        data: JSON.stringify({
-          code: "success",
-          data: { centerTokenDto: { token: "t2", refreshToken: "rt2", expireAt: 9999999999 } },
-        }),
-      }),
-    },
-    {
-      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
-      respond: () => ({ data: JSON.stringify({ code: "success", data: { signStatus: 1 } }) }),
-    },
+    ...createAuthRoutes(),
     {
       match: (method, url) => method === "get" && url.includes("/app/v1/task/getShareCode"),
       respond: ({ headers }) => {
@@ -490,20 +504,8 @@ async function testManualTrigger() {
   store.write(JSON.stringify({ refreshToken: "rt-manual", token: "t-manual" }), "lynkco.share.tokenState");
 
   const routes = [
-    {
-      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
-      respond: () => ({
-        data: JSON.stringify({
-          code: "success",
-          data: { centerTokenDto: { token: "t-refreshed", refreshToken: "rt-new", expireAt: 9999999999 } },
-        }),
-      }),
-    },
+    ...createAuthRoutes(),
     // 今日已签 → Sign: ok (already)
-    {
-      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
-      respond: () => ({ data: JSON.stringify({ code: "success", data: { signStatus: 1 } }) }),
-    },
   ];
   const { client } = createMockHttpClient(routes);
 
@@ -520,16 +522,7 @@ async function testManualTrigger() {
   assert("$done 收到弹页对象", sandbox.__doneArgs && typeof sandbox.__doneArgs === "object" && sandbox.__doneArgs.title === "LynkCo Daily", JSON.stringify(sandbox.__doneArgs));
   assert("弹页包含执行结果", sandbox.__doneArgs && sandbox.__doneArgs.htmlMessage && sandbox.__doneArgs.htmlMessage.includes("Sign: ok"), sandbox.__doneArgs && sandbox.__doneArgs.htmlMessage);
   assert("手动触发也发送通知", notification._posts.length >= 1);
-
-  // 反向对照：cron 路径今日已成功应静默跳过
-  const store2 = createMockStore();
-  const notification2 = createMockNotification();
-  store2.write(JSON.stringify({ date: today, success: true }), "lynkco.share.dailyState");
-  store2.write(JSON.stringify({ refreshToken: "rt-old" }), "lynkco.share.tokenState");
-  const { client: client2 } = createMockHttpClient([]);
-  const sandbox2 = runBundleOnce({ argument: "oncePerDay=1&debug=1", store: store2, notification: notification2, httpClient: client2 });
-  await waitFor(() => sandbox2.__doneCalled, 1000);
-  assert("cron 路径仍静默跳过（对照）", client2.calls.length === 0 && notification2._posts.length === 0);
+  // cron 路径今日已成功应静默跳过：已由 testOncePerDay 覆盖（预置今日成功 → 无请求 + 无通知）
 }
 
 function testPluginFormat() {
