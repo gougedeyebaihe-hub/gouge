@@ -1,7 +1,7 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260813-refactor12
- * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享。
+ * v20260818-refactor13
+ * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
  */
@@ -469,8 +469,6 @@ function buildNativeSignedHeaders(input) {
 
 "use strict";
 
-const SCRIPT_VERSION = "v20260813-refactor";
-
 /* 领克网关密钥表（X-Ca-Key → AppSecret）。
  * 2026-07 轮换后新 key 为 203760416；旧 key 204644386 已 403，保留作回退。
  * 注意：AppSecret 无法通过抓包获得，若 403 且 key 再次轮换需重新提取（见 docs/protocol.md）。 */
@@ -511,8 +509,9 @@ const DEFAULT_CONFIG = {
   nativeExtraCaHeaders: {},
 };
 
-function parseArgumentString(argument) {
+function parseArgument(argument) {
   if (!argument) return {};
+  if (typeof argument === "object") return argument; // [Argument] 控件对象形态
   return String(argument)
     .split("&")
     .map((entry) => entry.trim())
@@ -540,7 +539,7 @@ function resolveAppSecret(xCaKey) {
 
 /** 合并参数生成最终配置 */
 function buildConfig(argument) {
-  const source = parseArgumentString(argument);
+  const source = parseArgument(argument);
   const config = Object.assign({}, DEFAULT_CONFIG);
   const xCaKey = source.xCaKey || DEFAULT_CONFIG.xCaKey;
   config.xCaKey = String(xCaKey).trim();
@@ -1838,10 +1837,12 @@ function handleCapture(input) {
 
 /* ---------------- 定时任务处理 ---------------- */
 
-function handleCron(input) {
+function handleCron(input, mode) {
   const { config, store, notification, httpClient } = input;
   const now = input.now || new Date();
   const today = localDayKey(now);
+  // generic 手动触发：用户主动点按 = 强制执行，绕过 oncePerDay 静默跳过
+  const isManual = mode === "manual";
 
   const storedToken = readTokenState(store);
   const configToken = config.refreshToken || "";
@@ -1857,14 +1858,17 @@ function handleCron(input) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
       postNotification(notification, "LynkCo Daily", "No token saved.", "Open Lynk & Co once to capture token.");
     }
-    return Promise.resolve();
+    return Promise.resolve({
+      summary: "No token saved. Open Lynk & Co once to capture token.",
+      diagnostic: "",
+    });
   }
 
-  if (config.oncePerDay) {
+  if (config.oncePerDay && !isManual) {
     const daily = readDailyState(store);
     if (daily.date === today && daily.success) {
       // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
-      return Promise.resolve();
+      return Promise.resolve({ summary: "already done today", diagnostic: "" });
     }
   }
 
@@ -1886,14 +1890,25 @@ function handleCron(input) {
       });
       writeLastResult(store, summary);
       postNotification(notification, "LynkCo Daily", summary, diagnostic);
+      return { summary, diagnostic };
     })
     .catch((error) => {
       writeDailyState(store, { date: today, success: false, attempt: "exception" });
       postNotification(notification, "LynkCo Daily", "Daily run failed: " + error.message, "");
+      return { summary: "Daily run failed: " + error.message, diagnostic: "" };
     });
 }
 
 /* ---------------- 入口 ---------------- */
+
+/** generic 手动触发标记（与 build.js 中 generic 脚本 tag 对应，tag 含 manual） */
+const MANUAL_SCRIPT_MARKER = "manual";
+
+/** 当前脚本名称（$script.name = 脚本 tag）；不可用时返回空串 */
+function getScriptName() {
+  const script = typeof $script !== "undefined" ? $script : null;
+  return script && script.name ? String(script.name) : "";
+}
 
 function runMain() {
   const request = typeof $request !== "undefined" ? $request : null;
@@ -1906,18 +1921,32 @@ function runMain() {
   const config = buildConfig(argument);
 
   const isCaptureTrigger = Boolean(request || response);
+  // generic 手动触发：脚本名带 manual 标记。识别失败（$script 不可用）时按 cron 路径处理，
+  // 最坏情况是手动点按弹通知而非弹页，不影响定时/捕获。
+  const isManualTrigger = !isCaptureTrigger && getScriptName().toLowerCase().includes(MANUAL_SCRIPT_MARKER);
 
   // 完成所有异步任务后才调用 $done()。
   // 重要：Loon 调用 $done() 后会销毁脚本环境，若在异步请求完成前结束脚本，
   // 网络请求与通知会被中断（表现为"手动执行没反应"）。
-  const finish = () => done({});
-
-  const runCron = (input) => {
-    const result = handleCron(input);
+  const runCron = (input, mode) => {
+    const result = handleCron(input, mode);
+    const finish = (value) => {
+      if (mode === "manual") {
+        // generic 弹页展示结果（官方 generic_example.js 形态）
+        const summary = (value && value.summary) || "";
+        const diagnostic = (value && value.diagnostic) || "";
+        done({
+          title: "LynkCo Daily",
+          htmlMessage: summary + (diagnostic ? "\n\n" + diagnostic : ""),
+        });
+      } else {
+        done({});
+      }
+    };
     if (result && typeof result.then === "function") {
       result.then(finish, finish);
     } else {
-      finish();
+      finish(result);
     }
   };
 
@@ -1926,8 +1955,13 @@ function runMain() {
     if (captured.captured && config.autoRunOnCapture) {
       runCron({ config, store, notification, httpClient, now: new Date() });
     } else {
-      finish();
+      done({});
     }
+    return;
+  }
+
+  if (isManualTrigger) {
+    runCron({ config, store, notification, httpClient, now: new Date() }, "manual");
     return;
   }
 

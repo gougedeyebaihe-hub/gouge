@@ -4,6 +4,7 @@
  * 触发方式（由插件 [Script] 段配置）：
  *   - cron：每日定时执行任务（签到+分享）
  *   - http-request / http-response：捕获领克流量中的认证字段（token/refreshToken）
+ *   - generic：App 内手动触发（脚本名带 manual 标记），弹页显示结果
  *
  * 工作流：
  *   1. 首次使用：打开领克 App 制造一次流量 → 脚本捕获并保存 token/refreshToken
@@ -187,10 +188,12 @@ function handleCapture(input) {
 
 /* ---------------- 定时任务处理 ---------------- */
 
-function handleCron(input) {
+function handleCron(input, mode) {
   const { config, store, notification, httpClient } = input;
   const now = input.now || new Date();
   const today = localDayKey(now);
+  // generic 手动触发：用户主动点按 = 强制执行，绕过 oncePerDay 静默跳过
+  const isManual = mode === "manual";
 
   const storedToken = readTokenState(store);
   const configToken = config.refreshToken || "";
@@ -206,14 +209,17 @@ function handleCron(input) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
       postNotification(notification, "LynkCo Daily", "No token saved.", "Open Lynk & Co once to capture token.");
     }
-    return Promise.resolve();
+    return Promise.resolve({
+      summary: "No token saved. Open Lynk & Co once to capture token.",
+      diagnostic: "",
+    });
   }
 
-  if (config.oncePerDay) {
+  if (config.oncePerDay && !isManual) {
     const daily = readDailyState(store);
     if (daily.date === today && daily.success) {
       // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
-      return Promise.resolve();
+      return Promise.resolve({ summary: "already done today", diagnostic: "" });
     }
   }
 
@@ -235,14 +241,25 @@ function handleCron(input) {
       });
       writeLastResult(store, summary);
       postNotification(notification, "LynkCo Daily", summary, diagnostic);
+      return { summary, diagnostic };
     })
     .catch((error) => {
       writeDailyState(store, { date: today, success: false, attempt: "exception" });
       postNotification(notification, "LynkCo Daily", "Daily run failed: " + error.message, "");
+      return { summary: "Daily run failed: " + error.message, diagnostic: "" };
     });
 }
 
 /* ---------------- 入口 ---------------- */
+
+/** generic 手动触发标记（与 build.js 中 generic 脚本 tag 对应，tag 含 manual） */
+const MANUAL_SCRIPT_MARKER = "manual";
+
+/** 当前脚本名称（$script.name = 脚本 tag）；不可用时返回空串 */
+function getScriptName() {
+  const script = typeof $script !== "undefined" ? $script : null;
+  return script && script.name ? String(script.name) : "";
+}
 
 function runMain() {
   const request = typeof $request !== "undefined" ? $request : null;
@@ -255,18 +272,32 @@ function runMain() {
   const config = buildConfig(argument);
 
   const isCaptureTrigger = Boolean(request || response);
+  // generic 手动触发：脚本名带 manual 标记。识别失败（$script 不可用）时按 cron 路径处理，
+  // 最坏情况是手动点按弹通知而非弹页，不影响定时/捕获。
+  const isManualTrigger = !isCaptureTrigger && getScriptName().toLowerCase().includes(MANUAL_SCRIPT_MARKER);
 
   // 完成所有异步任务后才调用 $done()。
   // 重要：Loon 调用 $done() 后会销毁脚本环境，若在异步请求完成前结束脚本，
   // 网络请求与通知会被中断（表现为"手动执行没反应"）。
-  const finish = () => done({});
-
-  const runCron = (input) => {
-    const result = handleCron(input);
+  const runCron = (input, mode) => {
+    const result = handleCron(input, mode);
+    const finish = (value) => {
+      if (mode === "manual") {
+        // generic 弹页展示结果（官方 generic_example.js 形态）
+        const summary = (value && value.summary) || "";
+        const diagnostic = (value && value.diagnostic) || "";
+        done({
+          title: "LynkCo Daily",
+          htmlMessage: summary + (diagnostic ? "\n\n" + diagnostic : ""),
+        });
+      } else {
+        done({});
+      }
+    };
     if (result && typeof result.then === "function") {
       result.then(finish, finish);
     } else {
-      finish();
+      finish(result);
     }
   };
 
@@ -275,8 +306,13 @@ function runMain() {
     if (captured.captured && config.autoRunOnCapture) {
       runCron({ config, store, notification, httpClient, now: new Date() });
     } else {
-      finish();
+      done({});
     }
+    return;
+  }
+
+  if (isManualTrigger) {
+    runCron({ config, store, notification, httpClient, now: new Date() }, "manual");
     return;
   }
 

@@ -10,13 +10,27 @@
 
 ## 参数
 
-| 参数 | 默认 | 说明 |
-| --- | --- | --- |
-| `articleId` | 空 | 固定分享文章 ID；留空自动取最新文章 |
-| `appVersion` | `4.2.3` | 领克 App 版本 |
-| `captureNotify` | `0` | 捕获 token 时发通知；需要重抓 token 时临时设 `1` |
+插件导入后可在 Loon 的插件设置页修改（`[Argument]` 控件，保存后立即生效）：
 
-其余参数（签名密钥、appCode 等）已默认配好，一般无需修改。token 由捕获自动保存，`refreshToken` 参数仅在手动方式下使用。
+| 参数（控件） | 默认 | 说明 |
+| --- | --- | --- |
+| `refreshToken`（文本） | 空 | 手动方式使用；正常流程由流量捕获自动保存 |
+| `deviceId`（文本） | 空 | 同上，留空自动捕获 |
+| `deviceType`（选择） | `IOS` | 设备类型 |
+| `appVersion`（文本） | `4.2.3` | 领克 App 版本 |
+| `articleId`（文本） | 空 | 固定分享文章 ID；留空自动取最新文章 |
+| `xCaKey`（文本） | `203760416` | 网关密钥；轮换后需更新（见 `docs/protocol.md`） |
+| `appSecret`（文本） | 空 | 留空按 `xCaKey` 自动匹配 |
+| `appCode`（文本） | `3fa3...` | 静态认证 AppCode |
+| `shareEnabled`（开关） | 开 | 是否执行文章分享 |
+| `autoRunOnCapture`（开关） | 关 | 捕获到 token 后立即执行一次 |
+| `oncePerDay`（开关） | 开 | 每日仅执行一次（当日成功后静默跳过） |
+| `debug`（开关） | 开 | 通知附带诊断信息（签名/响应摘要） |
+| `captureNotify`（开关） | 关 | 捕获 token 时发通知；需要重抓 token 时临时打开 |
+
+## 手动触发
+
+插件详情页 → 脚本列表 → 点击「lynkco-manual」立即执行一次签到 + 分享，结果以弹窗显示（不受「每日仅一次」限制）。
 
 ## 通知
 
@@ -31,7 +45,8 @@
 
 ## 文件说明
 
-- `lynkco.bundle.js` — 主脚本（Loon 加载的文件）
-- `LynkCo.plugin` — 插件入口
-- `src/` — 源码；`build.js` 构建产物；`test/` 离线测试
+- `lynkco.bundle.js` — 主脚本（Loon 加载的文件，由 `build.js` 生成）
+- `LynkCo.plugin` — 插件入口（由 `build.js` 生成）
+- `src/` — 源码；修改后运行 `node build.js` 重建产物（含生成自检）
+- `test/` — 离线测试（`node test/run-tests.js`）+ 真实服务器验证（`node test/live-check.js <refreshToken>`）
 - `docs/protocol.md` — 协议与密钥轮换应对记录

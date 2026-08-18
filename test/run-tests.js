@@ -1,5 +1,5 @@
 /**
- * run-tests.js — 离线测试：crypto 向量、签名格式、mock 流程
+ * run-tests.js — 离线测试：crypto 向量、签名格式、mock 流程、插件产物格式
  *
  * 用法：node test/run-tests.js
  */
@@ -12,6 +12,7 @@ const nodeCrypto = require("crypto");
 
 const ROOT = path.join(__dirname, "..");
 const BUNDLE = fs.readFileSync(path.join(ROOT, "lynkco.bundle.js"), "utf8");
+const PLUGIN = fs.readFileSync(path.join(ROOT, "LynkCo.plugin"), "utf8");
 
 let passed = 0;
 let failed = 0;
@@ -75,15 +76,16 @@ function createMockHttpClient(routes) {
   return { client, calls };
 }
 
-/** 在 vm 中执行 bundle，模拟一次 Loon 脚本运行；返回 sandbox（含 __doneCalled） */
-function runBundleOnce({ request, response, argument, store, notification, httpClient }) {
+/** 在 vm 中执行 bundle，模拟一次 Loon 脚本运行；返回 sandbox（含 __doneCalled/__doneArgs） */
+function runBundleOnce({ request, response, argument, store, notification, httpClient, script }) {
   const sandbox = {
     $persistentStore: store,
     $notification: notification,
     $httpClient: httpClient,
     $argument: argument || "",
-    $done: () => {
+    $done: (args) => {
       sandbox.__doneCalled = true;
+      sandbox.__doneArgs = args;
     },
     console: console,
     TextEncoder: TextEncoder,
@@ -92,6 +94,7 @@ function runBundleOnce({ request, response, argument, store, notification, httpC
   };
   if (request) sandbox.$request = request;
   if (response) sandbox.$response = response;
+  if (script) sandbox.$script = script;
   vm.createContext(sandbox);
   vm.runInContext(BUNDLE, sandbox);
   return sandbox;
@@ -130,8 +133,90 @@ function createBundleSandbox() {
 /* ================= 测试数据 ================= */
 
 const TEST_CONFIG_ARGUMENT = "refreshToken=rt-test-1&deviceId=dev-1&debug=1";
+const TEST_CONFIG_OBJECT = { refreshToken: "rt-test-1", deviceId: "dev-1", debug: true, shareEnabled: true };
 
 const FIXED_ARTICLE_ID = "2075054309774663680";
+
+/** 完整签到+分享流程的 mock routes（respond 内需要 client.calls 时经 setClient 注入） */
+function createFullFlowRoutes() {
+  let client = null;
+  const routes = [
+    // refresh：返回新 token
+    {
+      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
+      respond: () => ({
+        data: JSON.stringify({
+          code: "success",
+          data: {
+            centerTokenDto: {
+              token: "bearer-refreshed-token",
+              refreshToken: "rt-new-1",
+              expireAt: 9999999999,
+            },
+          },
+        }),
+      }),
+    },
+    // 签到状态查询：upgrade 前未签，upgrade 后已签
+    {
+      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
+      respond: ({ url }) => {
+        const upgraded = client.calls.some((c) => c.url.includes("/up/api/v1/user/sign/upgrade"));
+        return { data: JSON.stringify({ code: "success", data: { signStatus: upgraded ? 1 : 0 } }) };
+      },
+    },
+    // 执行签到：成功
+    {
+      match: (method, url) => method === "post" && url.includes("/up/api/v1/user/sign/upgrade"),
+      respond: () => ({
+        data: JSON.stringify({ code: "success", data: { signStatus: 1 } }),
+      }),
+    },
+    // 广场文章列表（square/index2）
+    {
+      match: (method, url) => method === "post" && url.includes("/app/explore/home-page/square/index2"),
+      respond: () => ({
+        data: JSON.stringify({
+          code: "success",
+          data: {
+            userByteDynamicsResponseDTOS: [{ dynamicId: FIXED_ARTICLE_ID, contentType: "1" }],
+          },
+        }),
+      }),
+    },
+    // getShareCode：直接返回 shareCode
+    {
+      match: (method, url) => method === "get" && url.includes("/app/v1/task/getShareCode"),
+      respond: () => ({
+        data: JSON.stringify({ code: "success", data: "share-code-123" }),
+      }),
+    },
+    // shareReporting：成功
+    {
+      match: (method, url) => method === "post" && url.includes("/app/v1/task/shareReporting"),
+      respond: () => ({
+        data: JSON.stringify({ code: "success" }),
+      }),
+    },
+    // myEnergy：前 100 → 后 105
+    {
+      match: (method, url) => method === "get" && url.includes("/app/energy/myEnergy"),
+      respond: ({ url }) => {
+        const energyCalls = client.calls.filter(
+          (c) => c.url.includes("/app/energy/myEnergy"),
+        ).length;
+        const point = energyCalls <= 1 ? 100 : 105;
+        return { data: JSON.stringify({ code: "success", data: { point } }) };
+      },
+    },
+  ];
+  return {
+    routes,
+    setClient: (value) => {
+      client = value;
+    },
+  };
+}
 
 /* ================= 用例 ================= */
 
@@ -248,84 +333,16 @@ async function testNoTokenFlow() {
   assert("通知提示打开 App", post && post.content.includes("Open Lynk & Co once"), post && post.content);
 }
 
-async function testFullFlow() {
-  console.log("\n== 流程：完整签到+分享（mock） ==");
+async function testFullFlow(argument, label) {
+  console.log("\n== 流程：" + label + " ==");
   const store = createMockStore();
   const notification = createMockNotification();
 
-  const routes = [
-    // refresh：返回新 token
-    {
-      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
-      respond: () => ({
-        data: JSON.stringify({
-          code: "success",
-          data: {
-            centerTokenDto: {
-              token: "bearer-refreshed-token",
-              refreshToken: "rt-new-1",
-              expireAt: 9999999999,
-            },
-          },
-        }),
-      }),
-    },
-    // 签到状态查询：upgrade 前未签，upgrade 后已签
-    {
-      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
-      respond: ({ url }) => {
-        const upgraded = client.calls.some((c) => c.url.includes("/up/api/v1/user/sign/upgrade"));
-        return { data: JSON.stringify({ code: "success", data: { signStatus: upgraded ? 1 : 0 } }) };
-      },
-    },
-    // 执行签到：成功
-    {
-      match: (method, url) => method === "post" && url.includes("/up/api/v1/user/sign/upgrade"),
-      respond: () => ({
-        data: JSON.stringify({ code: "success", data: { signStatus: 1 } }),
-      }),
-    },
-    // 广场文章列表（square/index2）
-    {
-      match: (method, url) => method === "post" && url.includes("/app/explore/home-page/square/index2"),
-      respond: () => ({
-        data: JSON.stringify({
-          code: "success",
-          data: {
-            userByteDynamicsResponseDTOS: [{ dynamicId: FIXED_ARTICLE_ID, contentType: "1" }],
-          },
-        }),
-      }),
-    },
-    // getShareCode：直接返回 shareCode
-    {
-      match: (method, url) => method === "get" && url.includes("/app/v1/task/getShareCode"),
-      respond: () => ({
-        data: JSON.stringify({ code: "success", data: "share-code-123" }),
-      }),
-    },
-    // shareReporting：成功
-    {
-      match: (method, url) => method === "post" && url.includes("/app/v1/task/shareReporting"),
-      respond: () => ({
-        data: JSON.stringify({ code: "success" }),
-      }),
-    },
-    // myEnergy：前 100 → 后 105
-    {
-      match: (method, url) => method === "get" && url.includes("/app/energy/myEnergy"),
-      respond: ({ url }) => {
-        const energyCalls = client.calls.filter(
-          (c) => c.url.includes("/app/energy/myEnergy"),
-        ).length;
-        const point = energyCalls <= 1 ? 100 : 105;
-        return { data: JSON.stringify({ code: "success", data: { point } }) };
-      },
-    },
-  ];
-  const { client } = createMockHttpClient(routes);
+  const flow = createFullFlowRoutes();
+  const { client } = createMockHttpClient(flow.routes);
+  flow.setClient(client);
 
-  const sandbox = runBundleOnce({ argument: TEST_CONFIG_ARGUMENT, store, notification, httpClient: client });
+  const sandbox = runBundleOnce({ argument, store, notification, httpClient: client });
   await waitFor(() => notification._posts.length > 0 && sandbox.__doneCalled, 3000);
 
   const post = notification._posts[0];
@@ -463,16 +480,134 @@ async function testOncePerDay() {
   assert("跳过时静默（无通知）", notification._posts.length === 0, JSON.stringify(notification._posts));
 }
 
+async function testManualTrigger() {
+  console.log("\n== 流程：generic 手动触发（绕过 oncePerDay，弹页） ==");
+  const store = createMockStore();
+  const notification = createMockNotification();
+  // 预置 token + 今日已完成（验证手动触发绕过 oncePerDay 静默跳过）
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  store.write(JSON.stringify({ date: today, success: true }), "lynkco.share.dailyState");
+  store.write(JSON.stringify({ refreshToken: "rt-manual", token: "t-manual" }), "lynkco.share.tokenState");
+
+  const routes = [
+    {
+      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
+      respond: () => ({
+        data: JSON.stringify({
+          code: "success",
+          data: { centerTokenDto: { token: "t-refreshed", refreshToken: "rt-new", expireAt: 9999999999 } },
+        }),
+      }),
+    },
+    // 今日已签 → Sign: ok (already)
+    {
+      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
+      respond: () => ({ data: JSON.stringify({ code: "success", data: { signStatus: 1 } }) }),
+    },
+  ];
+  const { client } = createMockHttpClient(routes);
+
+  const sandbox = runBundleOnce({
+    argument: { oncePerDay: true, shareEnabled: false, debug: true },
+    store,
+    notification,
+    httpClient: client,
+    script: { name: "lynkco-manual" },
+  });
+  await waitFor(() => sandbox.__doneCalled, 3000);
+
+  assert("手动触发绕过 oncePerDay 仍执行", client.calls.length > 0, "calls=" + client.calls.length);
+  assert("$done 收到弹页对象", sandbox.__doneArgs && typeof sandbox.__doneArgs === "object" && sandbox.__doneArgs.title === "LynkCo Daily", JSON.stringify(sandbox.__doneArgs));
+  assert("弹页包含执行结果", sandbox.__doneArgs && sandbox.__doneArgs.htmlMessage && sandbox.__doneArgs.htmlMessage.includes("Sign: ok"), sandbox.__doneArgs && sandbox.__doneArgs.htmlMessage);
+  assert("手动触发也发送通知", notification._posts.length >= 1);
+
+  // 反向对照：cron 路径今日已成功应静默跳过
+  const store2 = createMockStore();
+  const notification2 = createMockNotification();
+  store2.write(JSON.stringify({ date: today, success: true }), "lynkco.share.dailyState");
+  store2.write(JSON.stringify({ refreshToken: "rt-old" }), "lynkco.share.tokenState");
+  const { client: client2 } = createMockHttpClient([]);
+  const sandbox2 = runBundleOnce({ argument: "oncePerDay=1&debug=1", store: store2, notification: notification2, httpClient: client2 });
+  await waitFor(() => sandbox2.__doneCalled, 1000);
+  assert("cron 路径仍静默跳过（对照）", client2.calls.length === 0 && notification2._posts.length === 0);
+}
+
+function testPluginFormat() {
+  console.log("\n== 插件产物格式（LynkCo.plugin） ==");
+
+  // 1) 非文档化字段 #!arguments 已移除
+  assert("无 #!arguments 字段", !PLUGIN.includes("#!arguments"));
+
+  // 2) 元信息字段齐全
+  assert("含 #!loon_version = 3.2.1(733)", PLUGIN.includes("#!loon_version = 3.2.1(733)"));
+  assert("含 #!system", PLUGIN.includes("#!system = "));
+  assert("含 #!type = normal", PLUGIN.includes("#!type = normal"));
+  assert("含 #!date", PLUGIN.includes("#!date = "));
+  assert("desc 含版本号", PLUGIN.includes("#!desc = 每日自动签到 + 文章分享（纯定时式，捕获一次 token 后无需再打开 App）| v20"));
+
+  // 3) [Argument] 参数齐全
+  const argumentSection = PLUGIN.split("[Argument]")[1].split("\n[")[0];
+  const expectedParams = [
+    "refreshToken", "deviceId", "deviceType", "appVersion", "articleId",
+    "xCaKey", "appSecret", "appCode", "shareEnabled", "autoRunOnCapture",
+    "oncePerDay", "debug", "captureNotify",
+  ];
+  const argumentLines = argumentSection.split("\n").map((line) => line.trim()).filter(Boolean);
+  assert("[Argument] 共 13 个参数", argumentLines.length === 13, "got " + argumentLines.length);
+  expectedParams.forEach((name) => {
+    assert("[Argument] 含 " + name, argumentLines.some((line) => line.startsWith(name + " = ")));
+  });
+  // 控件语法：input/select/switch + 引号默认值
+  assert(
+    "input 空默认值写 \"\"",
+    argumentLines.some((line) => line.startsWith('refreshToken = input,""')),
+  );
+  assert(
+    "select 首项为默认",
+    argumentLines.some((line) => line.startsWith('deviceType = select,"IOS","Android"')),
+  );
+  assert(
+    "switch 布尔默认",
+    argumentLines.some((line) => line.startsWith("shareEnabled = switch,true")) &&
+      argumentLines.some((line) => line.startsWith("autoRunOnCapture = switch,false")),
+  );
+  // 4) desc 无 ASCII 逗号
+  const asciiCommaDesc = argumentLines.filter((line) => /desc=.*,/.test(line));
+  assert("[Argument] desc 无 ASCII 逗号", asciiCommaDesc.length === 0, asciiCommaDesc.join(" | "));
+
+  // 5) 脚本行：5 条（2 cron + 2 捕获 + 1 generic）均带 argument 占位符
+  const scriptSection = PLUGIN.split("[Script]")[1].split("\n[")[0];
+  const scriptLines = scriptSection.split("\n").map((line) => line.trim()).filter(Boolean);
+  assert("[Script] 共 5 行", scriptLines.length === 5, "got " + scriptLines.length);
+  scriptLines.forEach((line) => {
+    assert("脚本行带 argument=[{...}]", line.includes("argument=[{"), line.slice(0, 90));
+  });
+  const manualLine = scriptLines.find((line) => line.startsWith("generic"));
+  assert("generic 手动触发脚本存在（tag=lynkco-manual）", Boolean(manualLine) && manualLine.includes("tag=lynkco-manual"), manualLine || "");
+  const placeholders = Array.from(PLUGIN.matchAll(/\{([a-zA-Z0-9_]+)\}/g), (match) => match[1]);
+  assert("占位符覆盖全部 13 参数", new Set(placeholders).size === 13 && placeholders.length >= 13);
+
+  // 6) [MITM] 主机齐全
+  const mitmLine = PLUGIN.split("[MITM]")[1].split("\n").map((line) => line.trim()).filter(Boolean)[0];
+  const hosts = ["h5-api.lynkco.com", "h5.lynkco.com", "app-api-gw-toc.lynkco.com", "app-services.lynkco.com.cn", "gric-api.geely.com"];
+  hosts.forEach((host) => {
+    assert("MITM 含 " + host, mitmLine.includes(host), mitmLine);
+  });
+}
+
 /* ================= 主入口 ================= */
 
 async function main() {
   testCryptoVectors();
   testSignatureFormat();
   await testNoTokenFlow();
-  await testFullFlow();
+  await testFullFlow(TEST_CONFIG_ARGUMENT, "完整签到+分享（字符串参数）");
+  await testFullFlow(TEST_CONFIG_OBJECT, "完整签到+分享（对象参数 / argument=[{...}] 形态）");
   await testShareValidationFlow();
   await testCaptureFlow();
   await testOncePerDay();
+  await testManualTrigger();
+  testPluginFormat();
 
   console.log("\n================================");
   console.log("passed: " + passed + ", failed: " + failed);

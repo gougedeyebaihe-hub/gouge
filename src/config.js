@@ -1,11 +1,11 @@
 /**
  * config.js — 配置解析与默认值
  *
- * 参数来自 Loon 插件 #!arguments 或 $argument（& 分隔的 key=value）。
+ * 参数来源（$argument）：
+ *   - 插件 [Argument] 控件 + 脚本行 argument=[{...}] → Loon 传入对象 {参数名: 值}
+ *   - 手动调用（live-check 等）→ "key=value&key2=value2" 字符串
  */
 "use strict";
-
-const SCRIPT_VERSION = "v20260813-refactor";
 
 /* 领克网关密钥表（X-Ca-Key → AppSecret）。
  * 2026-07 轮换后新 key 为 203760416；旧 key 204644386 已 403，保留作回退。
@@ -47,8 +47,9 @@ const DEFAULT_CONFIG = {
   nativeExtraCaHeaders: {},
 };
 
-function parseArgumentString(argument) {
+function parseArgument(argument) {
   if (!argument) return {};
+  if (typeof argument === "object") return argument; // [Argument] 控件对象形态
   return String(argument)
     .split("&")
     .map((entry) => entry.trim())
@@ -76,7 +77,7 @@ function resolveAppSecret(xCaKey) {
 
 /** 合并参数生成最终配置 */
 function buildConfig(argument) {
-  const source = parseArgumentString(argument);
+  const source = parseArgument(argument);
   const config = Object.assign({}, DEFAULT_CONFIG);
   const xCaKey = source.xCaKey || DEFAULT_CONFIG.xCaKey;
   config.xCaKey = String(xCaKey).trim();
