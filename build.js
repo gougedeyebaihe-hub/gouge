@@ -20,7 +20,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const OUT_DIR = ROOT;
 
-const BUNDLE_VERSION = "v20260818-refactor14";
+const BUNDLE_VERSION = "v20260818-refactor15";
 const PLUGIN_DATE = "2026-08-18";
 
 /* 模块拼接顺序（依赖在前；main.js 为入口分发，仅 bundle 需要） */

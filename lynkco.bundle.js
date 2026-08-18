@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260818-refactor14
+ * v20260818-refactor15
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -1575,9 +1575,6 @@ function buildSummary(report, config) {
   const parts = [summarizeTask("Sign", report.sign)];
   if (config.shareEnabled) {
     parts.push(summarizeTask("Share", report.share));
-    if (report.shareUrl && report.share && report.share.ok) {
-      parts.push("link=" + report.shareUrl);
-    }
   }
   return parts.join(" | ");
 }

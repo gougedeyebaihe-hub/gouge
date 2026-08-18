@@ -380,7 +380,7 @@ async function testFullFlow(argument, label) {
     post && post.content,
   );
   assert("分享加分 +5", post && post.content.includes("+5 已到账"), post && post.content);
-  assert("通知含分享链接", post && post.content.includes("link=https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html?id="), post && post.content);
+  assert("通知不含分享链接（link= 已移除）", post && !post.content.includes("link="), post && post.content);
   assert(
     "shareReporting 带 H5 签名",
     client.calls.some((c) => c.url.includes("shareReporting") && c.headers["X-Ca-Signature"]),
@@ -503,14 +503,13 @@ async function testManualTrigger() {
   store.write(JSON.stringify({ date: today, success: true }), "lynkco.share.dailyState");
   store.write(JSON.stringify({ refreshToken: "rt-manual", token: "t-manual" }), "lynkco.share.tokenState");
 
-  const routes = [
-    ...createAuthRoutes(),
-    // 今日已签 → Sign: ok (already)
-  ];
-  const { client } = createMockHttpClient(routes);
+  // 完整流程路由（含分享），验证弹页剥离 link 且通知保留 link
+  const flow = createFullFlowRoutes();
+  const { client } = createMockHttpClient(flow.routes);
+  flow.setClient(client);
 
   const sandbox = runBundleOnce({
-    argument: { oncePerDay: true, shareEnabled: false, debug: true },
+    argument: { oncePerDay: true, debug: true },
     store,
     notification,
     httpClient: client,
@@ -521,7 +520,9 @@ async function testManualTrigger() {
   assert("手动触发绕过 oncePerDay 仍执行", client.calls.length > 0, "calls=" + client.calls.length);
   assert("$done 收到弹页对象", sandbox.__doneArgs && typeof sandbox.__doneArgs === "object" && sandbox.__doneArgs.title === "LynkCo Daily", JSON.stringify(sandbox.__doneArgs));
   assert("弹页包含执行结果", sandbox.__doneArgs && sandbox.__doneArgs.htmlMessage && sandbox.__doneArgs.htmlMessage.includes("Sign: ok"), sandbox.__doneArgs && sandbox.__doneArgs.htmlMessage);
+  assert("弹页不含分享链接", sandbox.__doneArgs.htmlMessage && !sandbox.__doneArgs.htmlMessage.includes("link="), sandbox.__doneArgs.htmlMessage);
   assert("手动触发也发送通知", notification._posts.length >= 1);
+  assert("通知不含分享链接", notification._posts[0] && !notification._posts[0].content.includes("link="), notification._posts[0] && notification._posts[0].content);
   // cron 路径今日已成功应静默跳过：已由 testOncePerDay 覆盖（预置今日成功 → 无请求 + 无通知）
 }
 

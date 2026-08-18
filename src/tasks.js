@@ -327,9 +327,6 @@ function buildSummary(report, config) {
   const parts = [summarizeTask("Sign", report.sign)];
   if (config.shareEnabled) {
     parts.push(summarizeTask("Share", report.share));
-    if (report.shareUrl && report.share && report.share.ok) {
-      parts.push("link=" + report.shareUrl);
-    }
   }
   return parts.join(" | ");
 }
