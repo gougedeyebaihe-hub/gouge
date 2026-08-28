@@ -294,13 +294,12 @@ function runMain() {
       const result = handleCron(input, mode);
       const finish = (value) => {
         if (mode === "manual") {
-          // generic 弹页展示结果（官方 generic_example.js 形态）
+          // 手动触发结果直接输出到 Loon 日志（弹窗/通知长文本显示不全）；
+          // generic 仍需调用 $done 结束脚本
           const summary = (value && value.summary) || "";
           const diagnostic = (value && value.diagnostic) || "";
-          done({
-            title: "LynkCo Daily",
-            htmlMessage: summary + (diagnostic ? "\n\n" + diagnostic : ""),
-          });
+          console.log("[LynkCo-manual] " + summary + (diagnostic ? "\n" + diagnostic : ""));
+          done({});
         } else {
           done({});
         }

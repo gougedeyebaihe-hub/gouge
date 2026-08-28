@@ -77,14 +77,14 @@ function createMockHttpClient(routes) {
 }
 
 /** 构造 Loon 沙箱基础对象（runBundleOnce / createBundleSandbox 共用） */
-function makeSandbox({ store, notification, httpClient, argument, done }) {
+function makeSandbox({ store, notification, httpClient, argument, done, consoleOverride }) {
   const sandbox = {
     $persistentStore: store,
     $notification: notification,
     $httpClient: httpClient,
     $argument: argument || "",
     $done: done || (() => {}),
-    console: console,
+    console: consoleOverride || console,
     TextEncoder: TextEncoder,
     setTimeout: setTimeout,
     URL: URL,
@@ -93,12 +93,13 @@ function makeSandbox({ store, notification, httpClient, argument, done }) {
 }
 
 /** 在 vm 中执行 bundle，模拟一次 Loon 脚本运行；返回 sandbox（含 __doneCalled/__doneArgs） */
-function runBundleOnce({ request, response, argument, store, notification, httpClient, script }) {
+function runBundleOnce({ request, response, argument, store, notification, httpClient, script, consoleOverride }) {
   const sandbox = makeSandbox({
     store,
     notification,
     httpClient,
     argument,
+    consoleOverride,
     done: (args) => {
       sandbox.__doneCalled = true;
       sandbox.__doneArgs = args;
@@ -516,18 +517,20 @@ async function testCooldown() {
   // B：紧随其后手动触发——应被冷却拦截，不产生任何请求
   const { client: clientB, calls: callsB } = createMockHttpClient([]);
   const notificationB = createMockNotification();
+  const logsB = [];
   const sandboxB = runBundleOnce({
     argument: { shareEnabled: false, debug: true },
     store,
     notification: notificationB,
     httpClient: clientB,
     script: { name: "lynkco-manual" },
+    consoleOverride: { log: (...args) => logsB.push(args.join(" ")) },
   });
   await waitFor(() => sandboxA.__doneCalled && sandboxB.__doneCalled, 3000);
 
   assert("A 正常执行（有请求）", client.calls.length > 0, "calls=" + client.calls.length);
   assert("冷却期内的手动触发被拦截（无请求）", callsB.length === 0, "calls=" + callsB.length);
-  assert("拦截提示为执行中/刚完成", sandboxB.__doneArgs && sandboxB.__doneArgs.htmlMessage && sandboxB.__doneArgs.htmlMessage.includes("already running"), sandboxB.__doneArgs && sandboxB.__doneArgs.htmlMessage);
+  assert("拦截提示为执行中/刚完成（输出到日志）", logsB.join("\n").includes("already running"), logsB.join("\n").slice(0, 200));
 }
 
 async function testBackupRefresh() {
@@ -655,24 +658,33 @@ async function testManualTrigger() {
   store.write(JSON.stringify({ date: today, success: true }), "lynkco.share.dailyState");
   store.write(JSON.stringify({ refreshToken: "rt-manual", token: "t-manual" }), "lynkco.share.tokenState");
 
-  // 完整流程路由（含分享），验证弹页剥离 link 且通知保留 link
+  // 完整流程路由（含分享），验证手动触发结果输出到日志（不再弹窗）
   const flow = createFullFlowRoutes();
   const { client } = createMockHttpClient(flow.routes);
   flow.setClient(client);
 
+  const logs = [];
+  const mockConsole = {
+    log: (...args) => {
+      logs.push(args.join(" "));
+    },
+  };
   const sandbox = runBundleOnce({
     argument: { oncePerDay: true, debug: true },
     store,
     notification,
     httpClient: client,
     script: { name: "lynkco-manual" },
+    consoleOverride: mockConsole,
   });
   await waitFor(() => sandbox.__doneCalled, 3000);
 
+  const manualLog = logs.join("\n");
   assert("手动触发绕过 oncePerDay 仍执行", client.calls.length > 0, "calls=" + client.calls.length);
-  assert("$done 收到弹页对象", sandbox.__doneArgs && typeof sandbox.__doneArgs === "object" && sandbox.__doneArgs.title === "LynkCo Daily", JSON.stringify(sandbox.__doneArgs));
-  assert("弹页包含执行结果", sandbox.__doneArgs && sandbox.__doneArgs.htmlMessage && sandbox.__doneArgs.htmlMessage.includes("Sign: ok"), sandbox.__doneArgs && sandbox.__doneArgs.htmlMessage);
-  assert("弹页不含分享链接", sandbox.__doneArgs.htmlMessage && !sandbox.__doneArgs.htmlMessage.includes("link="), sandbox.__doneArgs.htmlMessage);
+  assert("$done 以普通收尾调用（不再弹窗）", sandbox.__doneCalled === true && sandbox.__doneArgs && typeof sandbox.__doneArgs === "object" && !sandbox.__doneArgs.title, JSON.stringify(sandbox.__doneArgs));
+  assert("结果输出到日志（[LynkCo-manual] 前缀）", manualLog.includes("[LynkCo-manual]"), manualLog.slice(0, 200));
+  assert("日志包含执行结果", manualLog.includes("Sign: ok"), manualLog.slice(0, 200));
+  assert("日志不含分享链接", !manualLog.includes("link="), manualLog.slice(0, 200));
   assert("手动触发也发送通知", notification._posts.length >= 1);
   assert("通知不含分享链接", notification._posts[0] && !notification._posts[0].content.includes("link="), notification._posts[0] && notification._posts[0].content);
   // cron 路径今日已成功应静默跳过：已由 testOncePerDay 覆盖（预置今日成功 → 无请求 + 无通知）
