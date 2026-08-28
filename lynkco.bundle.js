@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260828-refactor25
+ * v20260818-refactor15
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -314,35 +314,6 @@ function createNonce() {
 
 
 
-/** 东八区时间分量（UTC+8，不依赖设备时区） */
-function east8Parts(date) {
-  const local = new Date((date || new Date()).getTime() + 8 * 60 * 60 * 1000);
-  return {
-    year: local.getUTCFullYear(),
-    month: String(local.getUTCMonth() + 1).padStart(2, "0"),
-    day: String(local.getUTCDate()).padStart(2, "0"),
-    hours: String(local.getUTCHours()).padStart(2, "0"),
-    minutes: String(local.getUTCMinutes()).padStart(2, "0"),
-    seconds: String(local.getUTCSeconds()).padStart(2, "0"),
-  };
-}
-
-/** 东八区日期键 YYYY-MM-DD */
-function east8DayKey(date) {
-  const parts = east8Parts(date);
-  return parts.year + "-" + parts.month + "-" + parts.day;
-}
-
-/** 东八区完整时间 "YYYY-MM-DD HH:mm:ss" */
-function east8DateTime(date) {
-  const parts = east8Parts(date);
-  return (
-    parts.year + "-" + parts.month + "-" + parts.day + " " +
-    parts.hours + ":" + parts.minutes + ":" + parts.seconds
-  );
-}
-
-
 const H5_SIGNATURE_HEADERS = "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method";
 const NATIVE_SIGNATURE_HEADERS = "x-ca-nonce,x-ca-key,x-ca-timestamp";
 
@@ -363,9 +334,15 @@ function httpDate(now) {
   );
 }
 
-/** 东八区 "YYYY-MM-DD HH:mm:ss"（分享风控 openTimeStamp 用，与领克中国区服务端口径一致） */
+/** 本地时区 "YYYY-MM-DD HH:mm:ss"（分享风控时间戳用） */
 function formatRiskOpenTime(date) {
-  return east8DateTime(date);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(date.getUTCSeconds()).padStart(2, "0");
+  return year + "-" + month + "-" + day + " " + hours + ":" + minutes + ":" + seconds;
 }
 
 /**
@@ -489,14 +466,8 @@ function buildNativeSignedHeaders(input) {
 
 
 /* 领克网关密钥表（X-Ca-Key → AppSecret）。
- * 来源（2026-08 现场核实）：
- *   - 204644386/QCl7udM3... 为 H5 前端 vendor JS 明文密钥对（crypto-js HmacSHA256 直接使用，
- *     2026-08 抓取 h5.lynkco.com 的 vendor.c0eb609d.js 确认仍在线使用，可能多密钥并存），
- *     最初经 Loon MitM 抓取 H5 JS 提取；
- *   - 203760416/e1msl9aqd... 为当前脚本生效密钥对（与 rulaizhi/LynkCoHelper 2021 config.json 同值，
- *     来源为当时抓取的 JS 版本或公开仓库，无法完全还原）。
- * 提取方法：轮换时用 Loon MitM 抓 H5 vendor JS，从签名实现中读明文密钥对（无需 root 逆向），
- * 详见 docs/protocol.md。 */
+ * 2026-07 轮换后新 key 为 203760416；旧 key 204644386 已 403，保留作回退。
+ * 注意：AppSecret 无法通过抓包获得，若 403 且 key 再次轮换需重新提取（见 docs/protocol.md）。 */
 const LYNK_CO_APP_SECRETS = {
   "203760416": "e1msl9aqd101gfcjpo873hrs5jg752og",
   "204644386": "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",
@@ -637,7 +608,6 @@ function emptyTokenState() {
   return {
     token: "",
     refreshToken: "",
-    backupRefreshToken: "", // 捕获覆盖前的旧 refreshToken（refresh 失败时回退用）
     oauthAccessToken: "",
     oauthRefreshToken: "",
     authorization: "",
@@ -662,16 +632,7 @@ function serializeTokenState(tokenState) {
 }
 
 function readTokenState(store) {
-  // store.read 本身也可能抛错（与 readDailyState 的防护对称，保证 $done 必达路径不遗漏）
-  let raw = "";
-  if (store && store.read) {
-    try {
-      raw = store.read(TOKEN_STATE_KEY) || "";
-    } catch (error) {
-      raw = "";
-    }
-  }
-  return parseTokenState(raw);
+  return parseTokenState(store && store.read ? store.read(TOKEN_STATE_KEY) : "");
 }
 
 function writeTokenState(store, tokenState) {
@@ -688,20 +649,19 @@ function hasTokenState(tokenState) {
   );
 }
 
-/* ---------------- 每日状态（oncePerDay + 执行冷却用） ---------------- */
+/* ---------------- 每日状态（oncePerDay 用） ---------------- */
 
 function readDailyState(store) {
-  if (!store || !store.read) return { date: "", success: false, attempt: "", lastStartedAt: 0 };
+  if (!store || !store.read) return { date: "", success: false, attempt: "" };
   try {
     const parsed = JSON.parse(store.read(DAILY_STATE_KEY) || "");
     return {
       date: parsed.date || "",
       success: Boolean(parsed.success),
       attempt: parsed.attempt || "",
-      lastStartedAt: Number(parsed.lastStartedAt) || 0,
     };
   } catch (error) {
-    return { date: "", success: false, attempt: "", lastStartedAt: 0 };
+    return { date: "", success: false, attempt: "" };
   }
 }
 
@@ -709,9 +669,14 @@ function writeDailyState(store, state) {
   safeWrite(store, DAILY_STATE_KEY, JSON.stringify(state));
 }
 
-/** 本地日期键 YYYY-MM-DD（东八区，与分享风控时间戳同口径） */
+/** 本地日期键 YYYY-MM-DD（东八区） */
 function localDayKey(date) {
-  return east8DayKey(date);
+  const local = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  return [
+    local.getUTCFullYear(),
+    String(local.getUTCMonth() + 1).padStart(2, "0"),
+    String(local.getUTCDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 /* ---------------- 分享验证（certifyId） ---------------- */
@@ -784,19 +749,11 @@ const SHARE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) " +
   "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1";
 
-/** $httpClient 回调 error 可能是字符串或对象，统一转可读文本（避免 "[object Object]"） */
-function requestErrorText(error) {
-  if (error == null) return "unknown error";
-  if (typeof error === "string") return error;
-  if (error && error.message) return error.message;
-  return String(error);
-}
-
 function requestAsync(httpClient, method, params) {
   return new Promise((resolve, reject) => {
     httpClient[method](params, (error, response, data) => {
       if (error) {
-        reject(new Error(requestErrorText(error)));
+        reject(new Error(error));
         return;
       }
       resolve({ response, data });
@@ -821,25 +778,6 @@ function getHttpStatus(response) {
   return (response && (response.status || response.statusCode)) || 0;
 }
 
-/** 失效类业务码（refreshToken/token 无效或过期）——任务链应短路并提示重新捕获 */
-const INVALID_CREDENTIAL_CODES = [
-  "user_refresh_invalid_expired",
-  "user_refresh_invalid",
-  "user_token_invalid",
-  "user_token_expired",
-  "token_invalid",
-  "token_expired",
-  "expired_refresh_token",
-];
-
-function isInvalidCredentialPayload(payload) {
-  if (!payload || typeof payload !== "object") return false;
-  const code = payload.code || payload.status || "";
-  const text = String(code).toLowerCase();
-  if (!text) return false;
-  return INVALID_CREDENTIAL_CODES.some((item) => text.includes(item)) || text.includes("invalid");
-}
-
 function isSuccessMarker(value) {
   if (value == null || value === "") return true;
   if (typeof value === "number") return value === 0 || value === 200;
@@ -848,9 +786,9 @@ function isSuccessMarker(value) {
 
 function getBusinessFailureMessage(payload) {
   if (!payload || typeof payload !== "object") return "";
-  if (payload.success === false) return getApiMessage(payload) || "业务校验失败";
-  if (!isSuccessMarker(payload.code)) return getApiMessage(payload) || "业务码 " + payload.code;
-  if (!isSuccessMarker(payload.status)) return getApiMessage(payload) || "状态 " + payload.status;
+  if (payload.success === false) return getApiMessage(payload) || "business check failed";
+  if (!isSuccessMarker(payload.code)) return getApiMessage(payload) || "code " + payload.code;
+  if (!isSuccessMarker(payload.status)) return getApiMessage(payload) || "status " + payload.status;
   return "";
 }
 
@@ -860,12 +798,12 @@ function assertSuccessfulHttp(response, label, payload, data) {
     const apiMessage = getApiMessage(payload);
     const bodySummary = summarizeBody(data);
     throw new Error(
-      label + " 失败 HTTP " + status +
+      label + " failed HTTP " + status +
       (apiMessage ? ": " + apiMessage : bodySummary ? ": " + bodySummary : "."),
     );
   }
   const businessFailureMessage = getBusinessFailureMessage(payload);
-  if (businessFailureMessage) throw new Error(label + " 失败：" + businessFailureMessage);
+  if (businessFailureMessage) throw new Error(label + " failed: " + businessFailureMessage);
 }
 
 /** 截断长文本（用于错误信息/诊断摘要） */
@@ -939,12 +877,11 @@ function buildDeviceHeaders(config) {
 
 /* ---------------- H5 签名请求 ---------------- */
 
-/** 每个请求独立 nonce/timestamp/date（date 为 RFC1123 GMT，签名串与请求头共用同一值） */
+/** 每个请求独立 nonce/timestamp */
 function freshRequestContext(context) {
   return Object.assign({}, context, {
     nonce: createNonce(),
     timestamp: String(Date.now()),
-    date: httpDate(),
   });
 }
 
@@ -999,7 +936,6 @@ function buildNativeRequest(context, { method, host, uri, body, extraHeaders }) 
     xCaKey: context.config.xCaKey,
     nonce: context.nonce,
     timestamp: context.timestamp,
-    date: context.date,
     extraCaHeaders: context.config.nativeExtraCaHeaders,
   });
   const signature = signBase64HmacSha256(context.config.appSecret, signed.signString);
@@ -1016,7 +952,6 @@ function buildNativeRequest(context, { method, host, uri, body, extraHeaders }) 
         xCaKey: context.config.xCaKey,
         nonce: context.nonce,
         timestamp: context.timestamp,
-        date: context.date,
         signature,
         contentMd5: signed.contentMd5,
       }),
@@ -1078,7 +1013,6 @@ async function refreshToken(context, refreshTokenValue) {
   };
 
   const lastErrors = [];
-  let invalidCredentialSeen = false;
   for (let i = 0; i < AUTH_HOSTS.length; i += 1) {
     const host = AUTH_HOSTS[i];
     const uri = "/auth/login/refresh?" + query;
@@ -1113,7 +1047,6 @@ async function refreshToken(context, refreshTokenValue) {
             xCaKey: config.xCaKey,
             nonce: attemptContext.nonce,
             timestamp: attemptContext.timestamp,
-            date: attemptContext.date,
             extraCaHeaders: config.nativeExtraCaHeaders,
           });
           return {
@@ -1129,7 +1062,6 @@ async function refreshToken(context, refreshTokenValue) {
                 xCaKey: config.xCaKey,
                 nonce: attemptContext.nonce,
                 timestamp: attemptContext.timestamp,
-                date: attemptContext.date,
                 signature: signBase64HmacSha256(config.appSecret, signed.signString),
                 contentMd5: signed.contentMd5,
               }),
@@ -1143,9 +1075,7 @@ async function refreshToken(context, refreshTokenValue) {
       const attempt = attempts[attemptIndex];
       try {
         const result = await requestAsync(context.httpClient, "get", attempt.build());
-        const payload = parseJson(result.data);
-        if (isInvalidCredentialPayload(payload)) invalidCredentialSeen = true;
-        const refreshed = extractCenterTokenDto(payload, fallbacks);
+        const refreshed = extractCenterTokenDto(parseJson(result.data), fallbacks);
         if (refreshed) return refreshed;
         lastErrors.push(attempt.label + ": " + summarizeBody(result.data));
       } catch (error) {
@@ -1154,9 +1084,8 @@ async function refreshToken(context, refreshTokenValue) {
     }
   }
 
-  const error = new Error("刷新令牌失败：" + lastErrors.slice(0, 3).join(" || "));
+  const error = new Error("Refresh token failed: " + lastErrors.slice(0, 3).join(" || "));
   error.refreshFailed = true;
-  error.invalidCredential = invalidCredentialSeen ? true : false;
   throw error;
 }
 
@@ -1168,7 +1097,7 @@ async function getSignDayInfo(context) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/up/api/v1/user/sign/day/info",
-    label: "查询签到状态",
+    label: "Sign day info",
   });
 }
 
@@ -1179,7 +1108,7 @@ async function postSignUpgrade(context) {
     host: BUSINESS_HOST,
     uri: "/up/api/v1/user/sign/upgrade",
     body: "{}",
-    label: "执行签到",
+    label: "Sign upgrade",
     extraHeaders: { use_security: "true" },
   });
 }
@@ -1190,7 +1119,7 @@ async function getMyEnergy(context) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/app/energy/myEnergy",
-    label: "查询积分",
+    label: "My energy",
   });
 }
 
@@ -1206,7 +1135,7 @@ async function fetchSecurityCertifyId(context) {
         method: "GET",
         host,
         uri: "/auth/v1/security/config?type=GEE_TEST_V4",
-        label: "安全配置",
+        label: "Security config",
         extraHeaders: {
           tenantId: context.config.tenantId,
           Authentication: "AppId=" + context.config.cepAppId,
@@ -1221,7 +1150,7 @@ async function fetchSecurityCertifyId(context) {
       lastErrors.push(host + ": " + error.message);
     }
   }
-  const error = new Error("安全配置获取失败：" + lastErrors.slice(0, 3).join(" || "));
+  const error = new Error("Security config failed: " + lastErrors.slice(0, 3).join(" || "));
   error.securityFailed = true;
   throw error;
 }
@@ -1254,12 +1183,12 @@ async function getShareCode(context, options) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/app/v1/task/getShareCode",
-    label: "获取分享码",
+    label: "Share code",
     extraHeaders,
   });
   const payload = result.payload;
-  if (!payload || typeof payload !== "object") throw new Error("获取分享码响应不是有效 JSON。");
-  if (!payload.data) throw new Error(payload.message || "获取分享码响应缺少数据。");
+  if (!payload || typeof payload !== "object") throw new Error("Share code response is not valid JSON.");
+  if (!payload.data) throw new Error(payload.message || "Share code response does not include data.");
   return payload.data;
 }
 
@@ -1269,7 +1198,7 @@ async function postShareReporting(context, shareCode) {
     method: "POST",
     host: SHARE_HOST,
     uri: "/app/v1/task/shareReporting?shareCode=" + encodeURIComponent(shareCode),
-    label: "分享上报",
+    label: "Share reporting",
     body: JSON.stringify({
       businessNo: context.config.articleId,
       eventData: {
@@ -1304,13 +1233,13 @@ async function getFirstArticle(context) {
       refreshType: "MORE",
       pageNo: 1,
     }),
-    label: "文章列表",
+    label: "Square articles",
   });
   const data = result.payload && result.payload.data;
-  if (!data || typeof data !== "object") throw new Error("文章列表响应无效。");
+  if (!data || typeof data !== "object") throw new Error("Square response is not valid.");
   const dynamics = data.userByteDynamicsResponseDTOS;
   if (!Array.isArray(dynamics) || dynamics.length === 0) {
-    throw new Error("文章列表为空。");
+    throw new Error("Square article list is empty.");
   }
   for (let i = 0; i < dynamics.length; i += 1) {
     const item = dynamics[i];
@@ -1319,7 +1248,7 @@ async function getFirstArticle(context) {
     if (!articleId) continue;
     return String(articleId);
   }
-  throw new Error("文章列表中没有可用文章 ID。");
+  throw new Error("Square article list does not include a usable article id.");
 }
 
 
@@ -1478,15 +1407,12 @@ async function runSignTask(context, report) {
     if (confirmed) {
       report.signMessage = (payload && (payload.message || payload.msg)) || "";
     } else {
-      report.signError = new Error("签到接口返回成功，但复查仍显示未签到。");
-      report.sign = { ok: false, message: "签到未确认" };
-      return { ok: false, message: "签到未确认" };
+      report.signError = new Error("Sign upgrade returned success but day info still reports unsigned.");
+      return { ok: false, message: "sign not confirmed" };
     }
     return { ok: true };
   } catch (error) {
-    // 失败必须显式写入 report.sign（否则汇总显示 "skipped"，误导为"跳过"）
     report.signError = error;
-    report.sign = { ok: false, message: error.message };
     return { ok: false, message: error.message };
   }
 }
@@ -1526,7 +1452,7 @@ async function obtainShareCode(context) {
     const validation = await fetchSecurityCertifyId(context);
     if (!validation) {
       throw new Error(
-        "获取分享码失败：需要人机验证。请打开领克 App 手动分享一次后重试。",
+        "Share code failed: share.need.validate.check. Open Lynk & Co and share once manually, then retry.",
       );
     }
     writeStoredShareValidation(context.store, validation);
@@ -1537,7 +1463,7 @@ async function obtainShareCode(context) {
         throw validationError;
       }
       throw new Error(
-        "获取分享码失败：需要人机验证。请打开领克 App 手动分享一次后重试。",
+        "Share code failed: share.need.validate.check. Open Lynk & Co and share once manually, then retry.",
       );
     }
   }
@@ -1621,13 +1547,10 @@ async function runShareTask(context, report) {
         return { ok: true, fallback: true, shareUrl: report.shareUrl };
       } catch (fallbackError) {
         report.shareError = fallbackError;
-        report.share = { ok: false, message: fallbackError.message };
         return { ok: false, message: fallbackError.message };
       }
     }
-    // 失败必须显式写入 report.share（否则汇总显示 "skipped"，误导为"跳过"）
     report.shareError = error;
-    report.share = { ok: false, message: error.message };
     return { ok: false, message: error.message };
   }
 }
@@ -1635,41 +1558,25 @@ async function runShareTask(context, report) {
 /* ---------------- 汇总 ---------------- */
 
 function summarizeTask(name, result) {
-  if (!result) return name + "：跳过";
+  if (!result) return name + ": skipped";
   if (result.ok) {
-    if (result.already) return name + "：成功（今日已完成）";
+    if (result.already) return name + ": ok (already)";
     if (result.points != null) {
       // 分享：两步法（getShareCode + shareReporting）即触发加分，加分为异步落账；
       // points>0 表示复查时已确认到账，否则保持中性提示（跨日确认在次日通知中报告）
-      return name + "：成功" + (result.points > 0 ? "（+" + result.points + " 已到账）" : "");
+      return name + ": ok" + (result.points > 0 ? " (+" + result.points + " 已到账)" : "");
     }
-    return name + "：成功";
+    return name + ": ok";
   }
-  return name + "：失败（" + truncate(result.message, 160) + "）";
+  return name + ": failed (" + truncate(result.message, 160) + ")";
 }
 
 function buildSummary(report, config) {
-  const parts = [summarizeTask("签到", report.sign)];
+  const parts = [summarizeTask("Sign", report.sign)];
   if (config.shareEnabled) {
-    parts.push(summarizeTask("分享", report.share));
+    parts.push(summarizeTask("Share", report.share));
   }
   return parts.join(" | ");
-}
-
-/** 诊断信息进入通知前剥离已知敏感值（服务端错误响应可能回显凭证） */
-function redactSensitive(text, tokenState) {
-  let output = String(text || "");
-  [
-    tokenState.refreshToken,
-    tokenState.backupRefreshToken,
-    tokenState.token,
-    tokenState.authorization,
-    tokenState.oauthAccessToken,
-    tokenState.oauthRefreshToken,
-  ].forEach((value) => {
-    if (value && value.length >= 6) output = output.split(value).join("***");
-  });
-  return output;
 }
 
 /**
@@ -1680,10 +1587,7 @@ async function runDailyTasks(context) {
   const report = { sign: null, share: null };
   const config = context.config;
 
-  // 1) 续期（主失败回退 backup；失败原因属"凭证失效"时短路后续任务）
-  //    凭证是签到/分享的前置条件：refreshToken 无效时旧 token 不可信，继续执行只会
-  //    产生误导性结果（如 Sign: skipped / Share: ok 但实际未生效），应直接提示重新捕获。
-  let refreshInvalid = false;
+  // 1) 续期（失败不阻断，旧 token 可能仍可用）
   if (context.tokenState.refreshToken) {
     try {
       const refreshed = await refreshToken(context, context.tokenState.refreshToken);
@@ -1692,32 +1596,8 @@ async function runDailyTasks(context) {
         writeTokenState(context.store, context.tokenState);
       }
     } catch (error) {
-      refreshInvalid = error.invalidCredential === true;
-      if (context.tokenState.backupRefreshToken) {
-        try {
-          const refreshed = await refreshToken(context, context.tokenState.backupRefreshToken);
-          if (refreshed && refreshed.token) {
-            context.tokenState = Object.assign({}, context.tokenState, refreshed, { backupRefreshToken: "" });
-            writeTokenState(context.store, context.tokenState);
-            refreshInvalid = false;
-          }
-        } catch (backupError) {
-          refreshInvalid = refreshInvalid || backupError.invalidCredential === true;
-          report.refreshError = error;
-        }
-      } else {
-        report.refreshError = error;
-      }
+      report.refreshError = error;
     }
-  }
-
-  if (refreshInvalid) {
-    const refreshMessage = report.refreshError ? report.refreshError.message : "刷新令牌无效。";
-    return {
-      summary: "登录凭证已失效，请打开领克 App 重新登录以自动捕获。",
-      diagnostic: redactSensitive("refresh=" + truncate(refreshMessage, 160), context.tokenState),
-      report,
-    };
   }
 
   // 2) 签到
@@ -1731,7 +1611,7 @@ async function runDailyTasks(context) {
 
   const summary = buildSummary(report, config);
 
-  // 4) 诊断信息（敏感值脱敏后进通知）
+  // 4) 诊断信息
   let diagnostic = "";
   if (config.debug) {
     const details = [];
@@ -1751,7 +1631,7 @@ async function runDailyTasks(context) {
       details.push("shareCode=" + report.shareCode);
     }
     details.push("token=" + summarizeTokenState(context.tokenState));
-    diagnostic = redactSensitive(details.join(" | "), context.tokenState);
+    diagnostic = details.join(" | ");
   }
   report.summary = summary;
 
@@ -1782,11 +1662,6 @@ function normalizeFieldKey(key) {
   return String(key || "").toLowerCase();
 }
 
-/* 凭证类字段：以服务器下发（响应体）为准——客户端发送值（URL query/请求体）可能是旧值，
- * 如 refresh 请求 URL 带即将过期的 refreshToken，先到先得会导致响应体中的新值被旧值占位
- * （表现为"重新登录后仍报凭证失效"）。 */
-const CREDENTIAL_FIELDS = ["refreshToken", "token", "oauthAccessToken", "oauthRefreshToken", "authorization"];
-
 function normalizeHeaderName(name) {
   return String(name || "").toLowerCase().replace(/[-_]/g, "");
 }
@@ -1797,32 +1672,28 @@ function getHeader(headers, names) {
   const keys = Object.keys(headers);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
-    if (normalizedNames.includes(normalizeHeaderName(key))) {
-      const value = headers[key];
-      return value == null ? "" : String(value);
-    }
+    if (normalizedNames.includes(normalizeHeaderName(key))) return headers[key] || "";
   }
   return "";
 }
 
-function setCapturedField(result, key, value, preferCredentials) {
+function setCapturedField(result, key, value) {
   const canonical = CAPTURE_FIELD_ALIASES[normalizeFieldKey(key)];
-  if (!canonical || value == null || !String(value)) return;
-  if (!result[canonical] || (preferCredentials && CREDENTIAL_FIELDS.includes(canonical))) {
+  if (canonical && value != null && String(value) && !result[canonical]) {
     result[canonical] = String(value);
   }
 }
 
-function collectFromObject(value, result, preferCredentials) {
+function collectFromObject(value, result) {
   if (!value || typeof value !== "object") return;
   Object.keys(value).forEach((key) => {
-    setCapturedField(result, key, value[key], preferCredentials);
+    setCapturedField(result, key, value[key]);
     const nested = value[key];
-    if (nested && typeof nested === "object") collectFromObject(nested, result, preferCredentials);
+    if (nested && typeof nested === "object") collectFromObject(nested, result);
   });
 }
 
-function collectFromBody(body, result, preferCredentials) {
+function collectFromBody(body, result) {
   if (body == null) return;
   if (typeof body === "string") {
     if (!body) return;
@@ -1833,14 +1704,14 @@ function collectFromBody(body, result, preferCredentials) {
       parsed = null;
     }
     if (parsed && typeof parsed === "object") {
-      collectFromObject(parsed, result, preferCredentials);
+      collectFromObject(parsed, result);
     } else {
       const query = parseQueryString(body);
-      Object.keys(query).forEach((key) => setCapturedField(result, key, query[key], preferCredentials));
+      Object.keys(query).forEach((key) => setCapturedField(result, key, query[key]));
     }
     return;
   }
-  collectFromObject(body, result, preferCredentials);
+  collectFromObject(body, result);
 }
 
 function collectFromUrl(url, result) {
@@ -1851,7 +1722,7 @@ function collectFromUrl(url, result) {
   Object.keys(query).forEach((key) => setCapturedField(result, key, query[key]));
 }
 
-/** 从请求/响应中提取认证字段。URL/请求体先收集（占位），响应体凭证字段强制覆盖（服务器下发为准） */
+/** 从请求/响应中提取认证字段 */
 function extractCaptureFields(request, response) {
   const requestObject = request || {};
   const responseObject = response || {};
@@ -1859,7 +1730,7 @@ function extractCaptureFields(request, response) {
 
   collectFromUrl(requestObject.url || responseObject.url || "", result);
   collectFromBody(requestObject.body, result);
-  collectFromBody(responseObject.body, result, true);
+  collectFromBody(responseObject.body, result);
 
   const headers = requestObject.headers || responseObject.headers || {};
   const headerPairs = [
@@ -1893,47 +1764,31 @@ function handleCapture(input) {
   const { config, request, response, store, notification } = input;
   const captured = extractCaptureFields(request, response);
   const hasCaptured = hasTokenState(captured);
-  const url = String((request && request.url) || (response && response.url) || "");
-  if (config.debug) {
-    // 捕获埋点：每次捕获触发都会输出，用于定位"登录流量是否被监听到 / 提取了什么"
-    console.log(
-      "[领克-捕获] " + (response ? "响应" : "请求") + " " + url +
-      (hasCaptured ? " 提取: " + Object.keys(captured).join(",") : " 无可捕获字段"),
-    );
-  }
   if (!hasCaptured) {
+    if (config.debug) {
+      console.log("LynkCo no capturable fields in traffic");
+    }
     return { captured: false };
   }
 
   const previous = readTokenState(store);
-  // 捕获值可能来自排队/重试的旧流量：覆盖现有 refreshToken 前把旧值挪到 backup，
-  // refresh 失败时可回退（避免陈旧值覆盖刚换的新 token 后无法自愈）
   const merged = Object.assign({}, previous, captured);
-  if (
-    captured.refreshToken &&
-    previous.refreshToken &&
-    captured.refreshToken !== previous.refreshToken
-  ) {
-    merged.backupRefreshToken = previous.refreshToken;
-  }
   const fingerprintChanged = capturedFingerprint(merged) !== capturedFingerprint(previous);
   writeTokenState(store, merged);
 
-  // 捕获通知默认关闭（captureNotify=1 时开启；需要重抓 token 时临时打开）。
-  // 通知是诊断界面：所有凭证字段一律脱敏（maskValue），不在锁屏暴露完整值。
+  // 捕获通知默认关闭（captureNotify=1 时开启；需要重抓 token 时临时打开）
   if (config.captureNotify) {
     const body = JSON.stringify({
       capturedAt: new Date().toISOString(),
       source: response ? "response" : "request",
-      refreshToken: merged.refreshToken ? maskValue(merged.refreshToken) : "",
-      deviceId: merged.deviceId ? maskValue(merged.deviceId) : "",
+      refreshToken: merged.refreshToken || "",
+      deviceId: merged.deviceId || "",
       deviceType: merged.deviceType || "",
       appVersion: merged.appVersion || "",
-      token: merged.token ? maskValue(merged.token) : "",
-      authorization: merged.authorization ? maskValue(merged.authorization) : "",
-      changed: fingerprintChanged,
+      token: merged.token ? merged.token.slice(0, 12) + "..." : "",
+      authorization: merged.authorization ? merged.authorization.slice(0, 16) + "..." : "",
     });
-    postNotification(notification, "领克令牌已捕获", body, "");
+    postNotification(notification, "LynkCo Token Captured", body, "");
   }
   return { captured: true, tokenState: merged };
 }
@@ -1947,32 +1802,6 @@ function handleCron(input, mode) {
   // generic 手动触发：用户主动点按 = 强制执行，绕过 oncePerDay 静默跳过
   const isManual = mode === "manual";
 
-  // 执行中互斥：只在任务链真正执行（attempt="running"）时拦截并发触发。
-  // 任务被 Loon 超时杀掉时 attempt 停在 "running"——150s 窗口（>cron timeout 120s）后
-  // 视为僵尸锁自动过期，允许重新执行；任务正常结束后（attempt=结果摘要）不拦截，
-  // 用户可立即再次手动触发。
-  const daily = readDailyState(store);
-  const runningLockMs = 150 * 1000;
-  const isExecuting = daily.attempt === "running" &&
-    daily.lastStartedAt && now.getTime() - daily.lastStartedAt < runningLockMs;
-  if (isExecuting) {
-    if (isManual) {
-      postNotification(notification, "领克签到", "任务正在执行中，请稍候片刻再试。", "");
-      return Promise.resolve({
-        summary: "任务正在执行中，请稍候片刻再试。",
-        diagnostic: "",
-      });
-    }
-    return Promise.resolve({ summary: "任务执行中，已跳过本次触发", diagnostic: "" });
-  }
-
-  if (config.oncePerDay && !isManual) {
-    if (daily.date === today && daily.success) {
-      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
-      return Promise.resolve({ summary: "今日已完成", diagnostic: "" });
-    }
-  }
-
   const storedToken = readTokenState(store);
   const configToken = config.refreshToken || "";
   const tokenState = Object.assign({}, storedToken);
@@ -1982,19 +1811,24 @@ function handleCron(input, mode) {
   if (config.appVersion && !tokenState.appVersion) tokenState.appVersion = config.appVersion;
 
   if (!hasTokenState(tokenState)) {
+    const daily = readDailyState(store);
     if (daily.date !== today) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
-      postNotification(notification, "领克签到", "未保存令牌，请打开领克 App 完成登录以自动捕获。", "");
+      postNotification(notification, "LynkCo Daily", "No token saved.", "Open Lynk & Co once to capture token.");
     }
     return Promise.resolve({
-      summary: "未保存令牌，请打开领克 App 完成登录以自动捕获。",
+      summary: "No token saved. Open Lynk & Co once to capture token.",
       diagnostic: "",
     });
   }
 
-  const startedAt = now.getTime();
-  writeDailyState(store, { date: today, success: false, attempt: "running", lastStartedAt: startedAt });
-  console.log("[领克] 任务启动 " + today + " " + (isManual ? "（手动）" : "（定时）") + "，开始时间戳 " + startedAt);
+  if (config.oncePerDay && !isManual) {
+    const daily = readDailyState(store);
+    if (daily.date === today && daily.success) {
+      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
+      return Promise.resolve({ summary: "already done today", diagnostic: "" });
+    }
+  }
 
   const context = {
     config,
@@ -2009,17 +1843,16 @@ function handleCron(input, mode) {
     .then(({ summary, diagnostic }) => {
       writeDailyState(store, {
         date: today,
-        success: summary.includes("签到：成功") && (!config.shareEnabled || summary.includes("分享：成功")),
+        success: summary.includes("Sign: ok") && (!config.shareEnabled || summary.includes("Share: ok")),
         attempt: summary,
-        lastStartedAt: startedAt,
       });
-      postNotification(notification, "领克签到", summary, diagnostic);
+      postNotification(notification, "LynkCo Daily", summary, diagnostic);
       return { summary, diagnostic };
     })
     .catch((error) => {
-      writeDailyState(store, { date: today, success: false, attempt: "exception", lastStartedAt: startedAt });
-      postNotification(notification, "领克签到", "每日任务失败：" + error.message, "");
-      return { summary: "每日任务失败：" + error.message, diagnostic: "" };
+      writeDailyState(store, { date: today, success: false, attempt: "exception" });
+      postNotification(notification, "LynkCo Daily", "Daily run failed: " + error.message, "");
+      return { summary: "Daily run failed: " + error.message, diagnostic: "" };
     });
 }
 
@@ -2035,76 +1868,61 @@ function getScriptName() {
 }
 
 function runMain() {
-  try {
-    const request = typeof $request !== "undefined" ? $request : null;
-    const response = typeof $response !== "undefined" ? $response : null;
-    const store = $persistentStore;
-    const notification = $notification;
-    const httpClient = $httpClient;
-    const argument = typeof $argument !== "undefined" ? $argument : "";
-    const done = typeof $done !== "undefined" ? $done : function noop() {};
-    const config = buildConfig(argument);
+  const request = typeof $request !== "undefined" ? $request : null;
+  const response = typeof $response !== "undefined" ? $response : null;
+  const store = $persistentStore;
+  const notification = $notification;
+  const httpClient = $httpClient;
+  const argument = typeof $argument !== "undefined" ? $argument : "";
+  const done = typeof $done !== "undefined" ? $done : function noop() {};
+  const config = buildConfig(argument);
 
-    const isCaptureTrigger = Boolean(request || response);
-    // generic 手动触发：脚本名带 manual 标记。识别失败（$script 不可用）时按 cron 路径处理，
-    // 最坏情况是手动点按弹通知而非弹页，不影响定时/捕获。
-    const isManualTrigger = !isCaptureTrigger && getScriptName().toLowerCase().includes(MANUAL_SCRIPT_MARKER);
+  const isCaptureTrigger = Boolean(request || response);
+  // generic 手动触发：脚本名带 manual 标记。识别失败（$script 不可用）时按 cron 路径处理，
+  // 最坏情况是手动点按弹通知而非弹页，不影响定时/捕获。
+  const isManualTrigger = !isCaptureTrigger && getScriptName().toLowerCase().includes(MANUAL_SCRIPT_MARKER);
 
-    // 完成所有异步任务后才调用 $done()。
-    // 重要：Loon 调用 $done() 后会销毁脚本环境，若在异步请求完成前结束脚本，
-    // 网络请求与通知会被中断（表现为"手动执行没反应"）。
-    const runCron = (input, mode) => {
-      const result = handleCron(input, mode);
-      const finish = (value) => {
-        if (mode === "manual") {
-          // 手动触发结果直接输出到 Loon 日志（弹窗/通知长文本显示不全）；
-          // generic 仍需调用 $done 结束脚本
-          const summary = (value && value.summary) || "";
-          const diagnostic = (value && value.diagnostic) || "";
-          console.log("[领克-手动] " + summary + (diagnostic ? "\n" + diagnostic : ""));
-          done({});
-        } else {
-          done({});
-        }
-      };
-      if (result && typeof result.then === "function") {
-        result.then(finish, finish);
-      } else {
-        finish(result);
-      }
-    };
-
-    if (isCaptureTrigger) {
-      const captured = handleCapture({ config, request, response, store, notification });
-      if (captured.captured && config.autoRunOnCapture) {
-        runCron({ config, store, notification, httpClient, now: new Date() });
+  // 完成所有异步任务后才调用 $done()。
+  // 重要：Loon 调用 $done() 后会销毁脚本环境，若在异步请求完成前结束脚本，
+  // 网络请求与通知会被中断（表现为"手动执行没反应"）。
+  const runCron = (input, mode) => {
+    const result = handleCron(input, mode);
+    const finish = (value) => {
+      if (mode === "manual") {
+        // generic 弹页展示结果（官方 generic_example.js 形态）
+        const summary = (value && value.summary) || "";
+        const diagnostic = (value && value.diagnostic) || "";
+        done({
+          title: "LynkCo Daily",
+          htmlMessage: summary + (diagnostic ? "\n\n" + diagnostic : ""),
+        });
       } else {
         done({});
       }
-      return;
+    };
+    if (result && typeof result.then === "function") {
+      result.then(finish, finish);
+    } else {
+      finish(result);
     }
+  };
 
-    if (isManualTrigger) {
-      runCron({ config, store, notification, httpClient, now: new Date() }, "manual");
-      return;
+  if (isCaptureTrigger) {
+    const captured = handleCapture({ config, request, response, store, notification });
+    if (captured.captured && config.autoRunOnCapture) {
+      runCron({ config, store, notification, httpClient, now: new Date() });
+    } else {
+      done({});
     }
-
-    runCron({ config, store, notification, httpClient, now: new Date() });
-  } catch (error) {
-    // 兜底：任何同步异常（含未来改动引入的）都必须调用 $done，否则脚本资源泄漏
-    try {
-      console.log("LynkCo fatal: " + (error && error.message ? error.message : String(error)));
-    } catch (ignored) {
-      /* console 也不可用时静默 */
-    }
-    if (typeof $done !== "undefined") {
-      try {
-        $done({});
-      } catch (ignored) {
-        /* $done 抛错时无再兜底手段 */
-      }
-    }
+    return;
   }
+
+  if (isManualTrigger) {
+    runCron({ config, store, notification, httpClient, now: new Date() }, "manual");
+    return;
+  }
+
+  runCron({ config, store, notification, httpClient, now: new Date() });
 }
 
 runMain();

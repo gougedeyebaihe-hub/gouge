@@ -21,7 +21,6 @@ function emptyTokenState() {
   return {
     token: "",
     refreshToken: "",
-    backupRefreshToken: "", // 捕获覆盖前的旧 refreshToken（refresh 失败时回退用）
     oauthAccessToken: "",
     oauthRefreshToken: "",
     authorization: "",
@@ -46,16 +45,7 @@ function serializeTokenState(tokenState) {
 }
 
 function readTokenState(store) {
-  // store.read 本身也可能抛错（与 readDailyState 的防护对称，保证 $done 必达路径不遗漏）
-  let raw = "";
-  if (store && store.read) {
-    try {
-      raw = store.read(TOKEN_STATE_KEY) || "";
-    } catch (error) {
-      raw = "";
-    }
-  }
-  return parseTokenState(raw);
+  return parseTokenState(store && store.read ? store.read(TOKEN_STATE_KEY) : "");
 }
 
 function writeTokenState(store, tokenState) {
@@ -72,20 +62,19 @@ function hasTokenState(tokenState) {
   );
 }
 
-/* ---------------- 每日状态（oncePerDay + 执行冷却用） ---------------- */
+/* ---------------- 每日状态（oncePerDay 用） ---------------- */
 
 function readDailyState(store) {
-  if (!store || !store.read) return { date: "", success: false, attempt: "", lastStartedAt: 0 };
+  if (!store || !store.read) return { date: "", success: false, attempt: "" };
   try {
     const parsed = JSON.parse(store.read(DAILY_STATE_KEY) || "");
     return {
       date: parsed.date || "",
       success: Boolean(parsed.success),
       attempt: parsed.attempt || "",
-      lastStartedAt: Number(parsed.lastStartedAt) || 0,
     };
   } catch (error) {
-    return { date: "", success: false, attempt: "", lastStartedAt: 0 };
+    return { date: "", success: false, attempt: "" };
   }
 }
 
@@ -93,9 +82,14 @@ function writeDailyState(store, state) {
   safeWrite(store, DAILY_STATE_KEY, JSON.stringify(state));
 }
 
-/** 本地日期键 YYYY-MM-DD（东八区，与分享风控时间戳同口径） */
+/** 本地日期键 YYYY-MM-DD（东八区） */
 function localDayKey(date) {
-  return east8DayKey(date);
+  const local = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  return [
+    local.getUTCFullYear(),
+    String(local.getUTCMonth() + 1).padStart(2, "0"),
+    String(local.getUTCDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 /* ---------------- 分享验证（certifyId） ---------------- */

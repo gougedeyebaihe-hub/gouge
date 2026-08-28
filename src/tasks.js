@@ -159,15 +159,12 @@ async function runSignTask(context, report) {
     if (confirmed) {
       report.signMessage = (payload && (payload.message || payload.msg)) || "";
     } else {
-      report.signError = new Error("签到接口返回成功，但复查仍显示未签到。");
-      report.sign = { ok: false, message: "签到未确认" };
-      return { ok: false, message: "签到未确认" };
+      report.signError = new Error("Sign upgrade returned success but day info still reports unsigned.");
+      return { ok: false, message: "sign not confirmed" };
     }
     return { ok: true };
   } catch (error) {
-    // 失败必须显式写入 report.sign（否则汇总显示 "skipped"，误导为"跳过"）
     report.signError = error;
-    report.sign = { ok: false, message: error.message };
     return { ok: false, message: error.message };
   }
 }
@@ -207,7 +204,7 @@ async function obtainShareCode(context) {
     const validation = await fetchSecurityCertifyId(context);
     if (!validation) {
       throw new Error(
-        "获取分享码失败：需要人机验证。请打开领克 App 手动分享一次后重试。",
+        "Share code failed: share.need.validate.check. Open Lynk & Co and share once manually, then retry.",
       );
     }
     writeStoredShareValidation(context.store, validation);
@@ -218,7 +215,7 @@ async function obtainShareCode(context) {
         throw validationError;
       }
       throw new Error(
-        "获取分享码失败：需要人机验证。请打开领克 App 手动分享一次后重试。",
+        "Share code failed: share.need.validate.check. Open Lynk & Co and share once manually, then retry.",
       );
     }
   }
@@ -302,13 +299,10 @@ async function runShareTask(context, report) {
         return { ok: true, fallback: true, shareUrl: report.shareUrl };
       } catch (fallbackError) {
         report.shareError = fallbackError;
-        report.share = { ok: false, message: fallbackError.message };
         return { ok: false, message: fallbackError.message };
       }
     }
-    // 失败必须显式写入 report.share（否则汇总显示 "skipped"，误导为"跳过"）
     report.shareError = error;
-    report.share = { ok: false, message: error.message };
     return { ok: false, message: error.message };
   }
 }
@@ -316,41 +310,25 @@ async function runShareTask(context, report) {
 /* ---------------- 汇总 ---------------- */
 
 function summarizeTask(name, result) {
-  if (!result) return name + "：跳过";
+  if (!result) return name + ": skipped";
   if (result.ok) {
-    if (result.already) return name + "：成功（今日已完成）";
+    if (result.already) return name + ": ok (already)";
     if (result.points != null) {
       // 分享：两步法（getShareCode + shareReporting）即触发加分，加分为异步落账；
       // points>0 表示复查时已确认到账，否则保持中性提示（跨日确认在次日通知中报告）
-      return name + "：成功" + (result.points > 0 ? "（+" + result.points + " 已到账）" : "");
+      return name + ": ok" + (result.points > 0 ? " (+" + result.points + " 已到账)" : "");
     }
-    return name + "：成功";
+    return name + ": ok";
   }
-  return name + "：失败（" + truncate(result.message, 160) + "）";
+  return name + ": failed (" + truncate(result.message, 160) + ")";
 }
 
 function buildSummary(report, config) {
-  const parts = [summarizeTask("签到", report.sign)];
+  const parts = [summarizeTask("Sign", report.sign)];
   if (config.shareEnabled) {
-    parts.push(summarizeTask("分享", report.share));
+    parts.push(summarizeTask("Share", report.share));
   }
   return parts.join(" | ");
-}
-
-/** 诊断信息进入通知前剥离已知敏感值（服务端错误响应可能回显凭证） */
-function redactSensitive(text, tokenState) {
-  let output = String(text || "");
-  [
-    tokenState.refreshToken,
-    tokenState.backupRefreshToken,
-    tokenState.token,
-    tokenState.authorization,
-    tokenState.oauthAccessToken,
-    tokenState.oauthRefreshToken,
-  ].forEach((value) => {
-    if (value && value.length >= 6) output = output.split(value).join("***");
-  });
-  return output;
 }
 
 /**
@@ -361,10 +339,7 @@ async function runDailyTasks(context) {
   const report = { sign: null, share: null };
   const config = context.config;
 
-  // 1) 续期（主失败回退 backup；失败原因属"凭证失效"时短路后续任务）
-  //    凭证是签到/分享的前置条件：refreshToken 无效时旧 token 不可信，继续执行只会
-  //    产生误导性结果（如 Sign: skipped / Share: ok 但实际未生效），应直接提示重新捕获。
-  let refreshInvalid = false;
+  // 1) 续期（失败不阻断，旧 token 可能仍可用）
   if (context.tokenState.refreshToken) {
     try {
       const refreshed = await refreshToken(context, context.tokenState.refreshToken);
@@ -373,32 +348,8 @@ async function runDailyTasks(context) {
         writeTokenState(context.store, context.tokenState);
       }
     } catch (error) {
-      refreshInvalid = error.invalidCredential === true;
-      if (context.tokenState.backupRefreshToken) {
-        try {
-          const refreshed = await refreshToken(context, context.tokenState.backupRefreshToken);
-          if (refreshed && refreshed.token) {
-            context.tokenState = Object.assign({}, context.tokenState, refreshed, { backupRefreshToken: "" });
-            writeTokenState(context.store, context.tokenState);
-            refreshInvalid = false;
-          }
-        } catch (backupError) {
-          refreshInvalid = refreshInvalid || backupError.invalidCredential === true;
-          report.refreshError = error;
-        }
-      } else {
-        report.refreshError = error;
-      }
+      report.refreshError = error;
     }
-  }
-
-  if (refreshInvalid) {
-    const refreshMessage = report.refreshError ? report.refreshError.message : "刷新令牌无效。";
-    return {
-      summary: "登录凭证已失效，请打开领克 App 重新登录以自动捕获。",
-      diagnostic: redactSensitive("refresh=" + truncate(refreshMessage, 160), context.tokenState),
-      report,
-    };
   }
 
   // 2) 签到
@@ -412,7 +363,7 @@ async function runDailyTasks(context) {
 
   const summary = buildSummary(report, config);
 
-  // 4) 诊断信息（敏感值脱敏后进通知）
+  // 4) 诊断信息
   let diagnostic = "";
   if (config.debug) {
     const details = [];
@@ -432,7 +383,7 @@ async function runDailyTasks(context) {
       details.push("shareCode=" + report.shareCode);
     }
     details.push("token=" + summarizeTokenState(context.tokenState));
-    diagnostic = redactSensitive(details.join(" | "), context.tokenState);
+    diagnostic = details.join(" | ");
   }
   report.summary = summary;
 

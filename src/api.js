@@ -29,19 +29,11 @@ const SHARE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) " +
   "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1";
 
-/** $httpClient 回调 error 可能是字符串或对象，统一转可读文本（避免 "[object Object]"） */
-function requestErrorText(error) {
-  if (error == null) return "unknown error";
-  if (typeof error === "string") return error;
-  if (error && error.message) return error.message;
-  return String(error);
-}
-
 function requestAsync(httpClient, method, params) {
   return new Promise((resolve, reject) => {
     httpClient[method](params, (error, response, data) => {
       if (error) {
-        reject(new Error(requestErrorText(error)));
+        reject(new Error(error));
         return;
       }
       resolve({ response, data });
@@ -66,25 +58,6 @@ function getHttpStatus(response) {
   return (response && (response.status || response.statusCode)) || 0;
 }
 
-/** 失效类业务码（refreshToken/token 无效或过期）——任务链应短路并提示重新捕获 */
-const INVALID_CREDENTIAL_CODES = [
-  "user_refresh_invalid_expired",
-  "user_refresh_invalid",
-  "user_token_invalid",
-  "user_token_expired",
-  "token_invalid",
-  "token_expired",
-  "expired_refresh_token",
-];
-
-function isInvalidCredentialPayload(payload) {
-  if (!payload || typeof payload !== "object") return false;
-  const code = payload.code || payload.status || "";
-  const text = String(code).toLowerCase();
-  if (!text) return false;
-  return INVALID_CREDENTIAL_CODES.some((item) => text.includes(item)) || text.includes("invalid");
-}
-
 function isSuccessMarker(value) {
   if (value == null || value === "") return true;
   if (typeof value === "number") return value === 0 || value === 200;
@@ -93,9 +66,9 @@ function isSuccessMarker(value) {
 
 function getBusinessFailureMessage(payload) {
   if (!payload || typeof payload !== "object") return "";
-  if (payload.success === false) return getApiMessage(payload) || "业务校验失败";
-  if (!isSuccessMarker(payload.code)) return getApiMessage(payload) || "业务码 " + payload.code;
-  if (!isSuccessMarker(payload.status)) return getApiMessage(payload) || "状态 " + payload.status;
+  if (payload.success === false) return getApiMessage(payload) || "business check failed";
+  if (!isSuccessMarker(payload.code)) return getApiMessage(payload) || "code " + payload.code;
+  if (!isSuccessMarker(payload.status)) return getApiMessage(payload) || "status " + payload.status;
   return "";
 }
 
@@ -105,12 +78,12 @@ function assertSuccessfulHttp(response, label, payload, data) {
     const apiMessage = getApiMessage(payload);
     const bodySummary = summarizeBody(data);
     throw new Error(
-      label + " 失败 HTTP " + status +
+      label + " failed HTTP " + status +
       (apiMessage ? ": " + apiMessage : bodySummary ? ": " + bodySummary : "."),
     );
   }
   const businessFailureMessage = getBusinessFailureMessage(payload);
-  if (businessFailureMessage) throw new Error(label + " 失败：" + businessFailureMessage);
+  if (businessFailureMessage) throw new Error(label + " failed: " + businessFailureMessage);
 }
 
 /** 截断长文本（用于错误信息/诊断摘要） */
@@ -184,12 +157,11 @@ function buildDeviceHeaders(config) {
 
 /* ---------------- H5 签名请求 ---------------- */
 
-/** 每个请求独立 nonce/timestamp/date（date 为 RFC1123 GMT，签名串与请求头共用同一值） */
+/** 每个请求独立 nonce/timestamp */
 function freshRequestContext(context) {
   return Object.assign({}, context, {
     nonce: createNonce(),
     timestamp: String(Date.now()),
-    date: httpDate(),
   });
 }
 
@@ -244,7 +216,6 @@ function buildNativeRequest(context, { method, host, uri, body, extraHeaders }) 
     xCaKey: context.config.xCaKey,
     nonce: context.nonce,
     timestamp: context.timestamp,
-    date: context.date,
     extraCaHeaders: context.config.nativeExtraCaHeaders,
   });
   const signature = signBase64HmacSha256(context.config.appSecret, signed.signString);
@@ -261,7 +232,6 @@ function buildNativeRequest(context, { method, host, uri, body, extraHeaders }) 
         xCaKey: context.config.xCaKey,
         nonce: context.nonce,
         timestamp: context.timestamp,
-        date: context.date,
         signature,
         contentMd5: signed.contentMd5,
       }),
@@ -323,7 +293,6 @@ async function refreshToken(context, refreshTokenValue) {
   };
 
   const lastErrors = [];
-  let invalidCredentialSeen = false;
   for (let i = 0; i < AUTH_HOSTS.length; i += 1) {
     const host = AUTH_HOSTS[i];
     const uri = "/auth/login/refresh?" + query;
@@ -358,7 +327,6 @@ async function refreshToken(context, refreshTokenValue) {
             xCaKey: config.xCaKey,
             nonce: attemptContext.nonce,
             timestamp: attemptContext.timestamp,
-            date: attemptContext.date,
             extraCaHeaders: config.nativeExtraCaHeaders,
           });
           return {
@@ -374,7 +342,6 @@ async function refreshToken(context, refreshTokenValue) {
                 xCaKey: config.xCaKey,
                 nonce: attemptContext.nonce,
                 timestamp: attemptContext.timestamp,
-                date: attemptContext.date,
                 signature: signBase64HmacSha256(config.appSecret, signed.signString),
                 contentMd5: signed.contentMd5,
               }),
@@ -388,9 +355,7 @@ async function refreshToken(context, refreshTokenValue) {
       const attempt = attempts[attemptIndex];
       try {
         const result = await requestAsync(context.httpClient, "get", attempt.build());
-        const payload = parseJson(result.data);
-        if (isInvalidCredentialPayload(payload)) invalidCredentialSeen = true;
-        const refreshed = extractCenterTokenDto(payload, fallbacks);
+        const refreshed = extractCenterTokenDto(parseJson(result.data), fallbacks);
         if (refreshed) return refreshed;
         lastErrors.push(attempt.label + ": " + summarizeBody(result.data));
       } catch (error) {
@@ -399,9 +364,8 @@ async function refreshToken(context, refreshTokenValue) {
     }
   }
 
-  const error = new Error("刷新令牌失败：" + lastErrors.slice(0, 3).join(" || "));
+  const error = new Error("Refresh token failed: " + lastErrors.slice(0, 3).join(" || "));
   error.refreshFailed = true;
-  error.invalidCredential = invalidCredentialSeen ? true : false;
   throw error;
 }
 
@@ -413,7 +377,7 @@ async function getSignDayInfo(context) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/up/api/v1/user/sign/day/info",
-    label: "查询签到状态",
+    label: "Sign day info",
   });
 }
 
@@ -424,7 +388,7 @@ async function postSignUpgrade(context) {
     host: BUSINESS_HOST,
     uri: "/up/api/v1/user/sign/upgrade",
     body: "{}",
-    label: "执行签到",
+    label: "Sign upgrade",
     extraHeaders: { use_security: "true" },
   });
 }
@@ -435,7 +399,7 @@ async function getMyEnergy(context) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/app/energy/myEnergy",
-    label: "查询积分",
+    label: "My energy",
   });
 }
 
@@ -451,7 +415,7 @@ async function fetchSecurityCertifyId(context) {
         method: "GET",
         host,
         uri: "/auth/v1/security/config?type=GEE_TEST_V4",
-        label: "安全配置",
+        label: "Security config",
         extraHeaders: {
           tenantId: context.config.tenantId,
           Authentication: "AppId=" + context.config.cepAppId,
@@ -466,7 +430,7 @@ async function fetchSecurityCertifyId(context) {
       lastErrors.push(host + ": " + error.message);
     }
   }
-  const error = new Error("安全配置获取失败：" + lastErrors.slice(0, 3).join(" || "));
+  const error = new Error("Security config failed: " + lastErrors.slice(0, 3).join(" || "));
   error.securityFailed = true;
   throw error;
 }
@@ -499,12 +463,12 @@ async function getShareCode(context, options) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/app/v1/task/getShareCode",
-    label: "获取分享码",
+    label: "Share code",
     extraHeaders,
   });
   const payload = result.payload;
-  if (!payload || typeof payload !== "object") throw new Error("获取分享码响应不是有效 JSON。");
-  if (!payload.data) throw new Error(payload.message || "获取分享码响应缺少数据。");
+  if (!payload || typeof payload !== "object") throw new Error("Share code response is not valid JSON.");
+  if (!payload.data) throw new Error(payload.message || "Share code response does not include data.");
   return payload.data;
 }
 
@@ -514,7 +478,7 @@ async function postShareReporting(context, shareCode) {
     method: "POST",
     host: SHARE_HOST,
     uri: "/app/v1/task/shareReporting?shareCode=" + encodeURIComponent(shareCode),
-    label: "分享上报",
+    label: "Share reporting",
     body: JSON.stringify({
       businessNo: context.config.articleId,
       eventData: {
@@ -549,13 +513,13 @@ async function getFirstArticle(context) {
       refreshType: "MORE",
       pageNo: 1,
     }),
-    label: "文章列表",
+    label: "Square articles",
   });
   const data = result.payload && result.payload.data;
-  if (!data || typeof data !== "object") throw new Error("文章列表响应无效。");
+  if (!data || typeof data !== "object") throw new Error("Square response is not valid.");
   const dynamics = data.userByteDynamicsResponseDTOS;
   if (!Array.isArray(dynamics) || dynamics.length === 0) {
-    throw new Error("文章列表为空。");
+    throw new Error("Square article list is empty.");
   }
   for (let i = 0; i < dynamics.length; i += 1) {
     const item = dynamics[i];
@@ -564,5 +528,5 @@ async function getFirstArticle(context) {
     if (!articleId) continue;
     return String(articleId);
   }
-  throw new Error("文章列表中没有可用文章 ID。");
+  throw new Error("Square article list does not include a usable article id.");
 }
