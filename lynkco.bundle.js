@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260828-refactor24
+ * v20260828-refactor25
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -1893,10 +1893,15 @@ function handleCapture(input) {
   const { config, request, response, store, notification } = input;
   const captured = extractCaptureFields(request, response);
   const hasCaptured = hasTokenState(captured);
+  const url = String((request && request.url) || (response && response.url) || "");
+  if (config.debug) {
+    // 捕获埋点：每次捕获触发都会输出，用于定位"登录流量是否被监听到 / 提取了什么"
+    console.log(
+      "[领克-捕获] " + (response ? "响应" : "请求") + " " + url +
+      (hasCaptured ? " 提取: " + Object.keys(captured).join(",") : " 无可捕获字段"),
+    );
+  }
   if (!hasCaptured) {
-    if (config.debug) {
-      console.log("LynkCo no capturable fields in traffic");
-    }
     return { captured: false };
   }
 
