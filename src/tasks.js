@@ -160,11 +160,14 @@ async function runSignTask(context, report) {
       report.signMessage = (payload && (payload.message || payload.msg)) || "";
     } else {
       report.signError = new Error("Sign upgrade returned success but day info still reports unsigned.");
+      report.sign = { ok: false, message: "sign not confirmed" };
       return { ok: false, message: "sign not confirmed" };
     }
     return { ok: true };
   } catch (error) {
+    // 失败必须显式写入 report.sign（否则汇总显示 "skipped"，误导为"跳过"）
     report.signError = error;
+    report.sign = { ok: false, message: error.message };
     return { ok: false, message: error.message };
   }
 }
@@ -299,10 +302,13 @@ async function runShareTask(context, report) {
         return { ok: true, fallback: true, shareUrl: report.shareUrl };
       } catch (fallbackError) {
         report.shareError = fallbackError;
+        report.share = { ok: false, message: fallbackError.message };
         return { ok: false, message: fallbackError.message };
       }
     }
+    // 失败必须显式写入 report.share（否则汇总显示 "skipped"，误导为"跳过"）
     report.shareError = error;
+    report.share = { ok: false, message: error.message };
     return { ok: false, message: error.message };
   }
 }
@@ -355,9 +361,10 @@ async function runDailyTasks(context) {
   const report = { sign: null, share: null };
   const config = context.config;
 
-  // 1) 续期（失败不阻断，旧 token 可能仍可用）。
-  //    主 refreshToken 失败时回退 backupRefreshToken（捕获覆盖前的旧值，
-  //    用于捕获到陈旧值覆盖新值后无法自愈的场景）；备份成功则提升为新主并清备份。
+  // 1) 续期（主失败回退 backup；失败原因属"凭证失效"时短路后续任务）
+  //    凭证是签到/分享的前置条件：refreshToken 无效时旧 token 不可信，继续执行只会
+  //    产生误导性结果（如 Sign: skipped / Share: ok 但实际未生效），应直接提示重新捕获。
+  let refreshInvalid = false;
   if (context.tokenState.refreshToken) {
     try {
       const refreshed = await refreshToken(context, context.tokenState.refreshToken);
@@ -366,20 +373,32 @@ async function runDailyTasks(context) {
         writeTokenState(context.store, context.tokenState);
       }
     } catch (error) {
+      refreshInvalid = error.invalidCredential === true;
       if (context.tokenState.backupRefreshToken) {
         try {
           const refreshed = await refreshToken(context, context.tokenState.backupRefreshToken);
           if (refreshed && refreshed.token) {
             context.tokenState = Object.assign({}, context.tokenState, refreshed, { backupRefreshToken: "" });
             writeTokenState(context.store, context.tokenState);
+            refreshInvalid = false;
           }
         } catch (backupError) {
+          refreshInvalid = refreshInvalid || backupError.invalidCredential === true;
           report.refreshError = error;
         }
       } else {
         report.refreshError = error;
       }
     }
+  }
+
+  if (refreshInvalid) {
+    const refreshMessage = report.refreshError ? report.refreshError.message : "Refresh token invalid.";
+    return {
+      summary: "Token expired. Open Lynk & Co once to re-capture.",
+      diagnostic: redactSensitive("refresh=" + truncate(refreshMessage, 160), context.tokenState),
+      report,
+    };
   }
 
   // 2) 签到

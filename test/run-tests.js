@@ -745,6 +745,80 @@ function testPluginFormat() {
   });
 }
 
+async function testSignFailureShowsFailed() {
+  console.log("\n== 流程：签到失败显示 failed（而非误导性 skipped） ==");
+  const store = createMockStore();
+  const notification = createMockNotification();
+  store.write(JSON.stringify({ refreshToken: "rt-ok", token: "t-ok" }), "lynkco.share.tokenState");
+
+  const routes = [
+    {
+      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
+      respond: () => ({
+        data: JSON.stringify({ code: "success", data: { centerTokenDto: { token: "t-new", refreshToken: "rt-new" } } }),
+      }),
+    },
+    {
+      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
+      respond: () => ({ data: JSON.stringify({ code: "success", data: { signStatus: 0 } }) }),
+    },
+    {
+      match: (method, url) => method === "post" && url.includes("/up/api/v1/user/sign/upgrade"),
+      respond: () => ({ status: 403, data: JSON.stringify({ code: "error", message: "signature failed" }) }),
+    },
+  ];
+  const { client } = createMockHttpClient(routes);
+
+  runBundleOnce({
+    argument: { shareEnabled: false, debug: true },
+    store,
+    notification,
+    httpClient: client,
+  });
+  await waitFor(() => notification._posts.length > 0, 3000);
+
+  const post = notification._posts[0];
+  assert("签到失败显示 Sign: failed", post && post.content.includes("Sign: failed"), post && post.content);
+  assert("不再显示 Sign: skipped", post && !post.content.includes("Sign: skipped"), post && post.content);
+  assert("诊断含 signErr", post && post.content.includes("signErr="), post && post.content);
+}
+
+async function testRefreshInvalidShortCircuit() {
+  console.log("\n== 流程：凭证失效（user_refresh_invalid_expired）短路任务链 ==");
+  const store = createMockStore();
+  const notification = createMockNotification();
+  store.write(JSON.stringify({ refreshToken: "rt-stale", token: "t-old" }), "lynkco.share.tokenState");
+
+  const routes = [
+    {
+      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
+      respond: () => ({
+        data: JSON.stringify({ code: "user_refresh_invalid_expired", message: "refresh token expired", data: null }),
+      }),
+    },
+    {
+      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
+      respond: () => ({ data: JSON.stringify({ code: "success", data: { signStatus: 0 } }) }),
+    },
+  ];
+  const { client } = createMockHttpClient(routes);
+
+  runBundleOnce({
+    argument: { shareEnabled: true, debug: true },
+    store,
+    notification,
+    httpClient: client,
+  });
+  await waitFor(() => notification._posts.length > 0, 3000);
+
+  const post = notification._posts[0];
+  assert("失效时通知明确提示重新捕获", post && post.content.includes("Token expired. Open Lynk & Co once to re-capture."), post && post.content);
+  assert("失效时不再执行签到（无 day/info 请求）", !client.calls.some((c) => c.url.includes("sign/day/info")), "calls=" + client.calls.length);
+  assert("失效时不再执行分享", !client.calls.some((c) => c.url.includes("getShareCode")), "calls=" + client.calls.length);
+  assert("失效时无 Sign:/Share: 误导性状态", post && !post.content.includes("Sign:"), post && post.content);
+  assert("诊断保留 refresh 原因", post && post.content.includes("refresh="), post && post.content);
+}
+
 /* ================= 主入口 ================= */
 
 async function main() {
@@ -760,6 +834,8 @@ async function main() {
   await testCooldown();
   await testBackupRefresh();
   await testDiagnosticRedaction();
+  await testSignFailureShowsFailed();
+  await testRefreshInvalidShortCircuit();
   await testOncePerDay();
   await testManualTrigger();
   testPluginFormat();

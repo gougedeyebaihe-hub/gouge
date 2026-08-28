@@ -34,9 +34,10 @@
 
 ## 通知
 
+- `Token expired. Open Lynk & Co once to re-capture.`：登录凭证失效，打开领克 App 翻几个页面重新捕获即可（脚本会自动保存新 token）
 - `Sign: ok | Share: ok`：签到 + 分享成功（+5 积分异步到账，可在 App 积分页查看）
+- `Sign: failed` / `Share: failed`：对应任务失败，诊断信息（`signErr=` / `shareErr=`）说明原因
 - **分享成功 ≠ 立即加分**：加分机制需要有人（含自己）**当日浏览分享链接**后异步落账，通常次日可见；持续数日无变化再反馈
-- 失败通知会附带诊断信息（`signErr=` / `shareErr=` 等），可据此排查或反馈
 
 ## 常见问题
 

@@ -66,6 +66,25 @@ function getHttpStatus(response) {
   return (response && (response.status || response.statusCode)) || 0;
 }
 
+/** 失效类业务码（refreshToken/token 无效或过期）——任务链应短路并提示重新捕获 */
+const INVALID_CREDENTIAL_CODES = [
+  "user_refresh_invalid_expired",
+  "user_refresh_invalid",
+  "user_token_invalid",
+  "user_token_expired",
+  "token_invalid",
+  "token_expired",
+  "expired_refresh_token",
+];
+
+function isInvalidCredentialPayload(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  const code = payload.code || payload.status || "";
+  const text = String(code).toLowerCase();
+  if (!text) return false;
+  return INVALID_CREDENTIAL_CODES.some((item) => text.includes(item)) || text.includes("invalid");
+}
+
 function isSuccessMarker(value) {
   if (value == null || value === "") return true;
   if (typeof value === "number") return value === 0 || value === 200;
@@ -304,6 +323,7 @@ async function refreshToken(context, refreshTokenValue) {
   };
 
   const lastErrors = [];
+  let invalidCredentialSeen = false;
   for (let i = 0; i < AUTH_HOSTS.length; i += 1) {
     const host = AUTH_HOSTS[i];
     const uri = "/auth/login/refresh?" + query;
@@ -368,7 +388,9 @@ async function refreshToken(context, refreshTokenValue) {
       const attempt = attempts[attemptIndex];
       try {
         const result = await requestAsync(context.httpClient, "get", attempt.build());
-        const refreshed = extractCenterTokenDto(parseJson(result.data), fallbacks);
+        const payload = parseJson(result.data);
+        if (isInvalidCredentialPayload(payload)) invalidCredentialSeen = true;
+        const refreshed = extractCenterTokenDto(payload, fallbacks);
         if (refreshed) return refreshed;
         lastErrors.push(attempt.label + ": " + summarizeBody(result.data));
       } catch (error) {
@@ -379,6 +401,7 @@ async function refreshToken(context, refreshTokenValue) {
 
   const error = new Error("Refresh token failed: " + lastErrors.slice(0, 3).join(" || "));
   error.refreshFailed = true;
+  error.invalidCredential = invalidCredentialSeen ? true : false;
   throw error;
 }
 
