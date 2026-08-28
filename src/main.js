@@ -44,7 +44,10 @@ function getHeader(headers, names) {
   const keys = Object.keys(headers);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
-    if (normalizedNames.includes(normalizeHeaderName(key))) return headers[key] || "";
+    if (normalizedNames.includes(normalizeHeaderName(key))) {
+      const value = headers[key];
+      return value == null ? "" : String(value);
+    }
   }
   return "";
 }
@@ -144,21 +147,32 @@ function handleCapture(input) {
   }
 
   const previous = readTokenState(store);
+  // 捕获值可能来自排队/重试的旧流量：覆盖现有 refreshToken 前把旧值挪到 backup，
+  // refresh 失败时可回退（避免陈旧值覆盖刚换的新 token 后无法自愈）
   const merged = Object.assign({}, previous, captured);
+  if (
+    captured.refreshToken &&
+    previous.refreshToken &&
+    captured.refreshToken !== previous.refreshToken
+  ) {
+    merged.backupRefreshToken = previous.refreshToken;
+  }
   const fingerprintChanged = capturedFingerprint(merged) !== capturedFingerprint(previous);
   writeTokenState(store, merged);
 
-  // 捕获通知默认关闭（captureNotify=1 时开启；需要重抓 token 时临时打开）
+  // 捕获通知默认关闭（captureNotify=1 时开启；需要重抓 token 时临时打开）。
+  // 通知是诊断界面：所有凭证字段一律脱敏（maskValue），不在锁屏暴露完整值。
   if (config.captureNotify) {
     const body = JSON.stringify({
       capturedAt: new Date().toISOString(),
       source: response ? "response" : "request",
-      refreshToken: merged.refreshToken || "",
-      deviceId: merged.deviceId || "",
+      refreshToken: merged.refreshToken ? maskValue(merged.refreshToken) : "",
+      deviceId: merged.deviceId ? maskValue(merged.deviceId) : "",
       deviceType: merged.deviceType || "",
       appVersion: merged.appVersion || "",
-      token: merged.token ? merged.token.slice(0, 12) + "..." : "",
-      authorization: merged.authorization ? merged.authorization.slice(0, 16) + "..." : "",
+      token: merged.token ? maskValue(merged.token) : "",
+      authorization: merged.authorization ? maskValue(merged.authorization) : "",
+      changed: fingerprintChanged,
     });
     postNotification(notification, "LynkCo Token Captured", body, "");
   }
@@ -174,6 +188,29 @@ function handleCron(input, mode) {
   // generic 手动触发：用户主动点按 = 强制执行，绕过 oncePerDay 静默跳过
   const isManual = mode === "manual";
 
+  // 执行冷却：并发触发（手动/捕获触发与 cron 重叠）在无 CAS 环境下无法跨实例互斥，
+  // 用 lastStartedAt 时间戳把 5 分钟内的重复触发收敛为单次执行；手动触发给出提示。
+  const daily = readDailyState(store);
+  const cooldownMs = 5 * 60 * 1000;
+  const withinCooldown = daily.lastStartedAt && now.getTime() - daily.lastStartedAt < cooldownMs;
+  if (withinCooldown) {
+    if (isManual) {
+      postNotification(notification, "LynkCo Daily", "A task is already running or just finished. Try again in a few minutes.", "");
+      return Promise.resolve({
+        summary: "A task is already running or just finished. Try again in a few minutes.",
+        diagnostic: "",
+      });
+    }
+    return Promise.resolve({ summary: "already running", diagnostic: "" });
+  }
+
+  if (config.oncePerDay && !isManual) {
+    if (daily.date === today && daily.success) {
+      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
+      return Promise.resolve({ summary: "already done today", diagnostic: "" });
+    }
+  }
+
   const storedToken = readTokenState(store);
   const configToken = config.refreshToken || "";
   const tokenState = Object.assign({}, storedToken);
@@ -183,7 +220,6 @@ function handleCron(input, mode) {
   if (config.appVersion && !tokenState.appVersion) tokenState.appVersion = config.appVersion;
 
   if (!hasTokenState(tokenState)) {
-    const daily = readDailyState(store);
     if (daily.date !== today) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
       postNotification(notification, "LynkCo Daily", "No token saved.", "Open Lynk & Co once to capture token.");
@@ -194,13 +230,8 @@ function handleCron(input, mode) {
     });
   }
 
-  if (config.oncePerDay && !isManual) {
-    const daily = readDailyState(store);
-    if (daily.date === today && daily.success) {
-      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
-      return Promise.resolve({ summary: "already done today", diagnostic: "" });
-    }
-  }
+  const startedAt = now.getTime();
+  writeDailyState(store, { date: today, success: false, attempt: "running", lastStartedAt: startedAt });
 
   const context = {
     config,
@@ -217,12 +248,13 @@ function handleCron(input, mode) {
         date: today,
         success: summary.includes("Sign: ok") && (!config.shareEnabled || summary.includes("Share: ok")),
         attempt: summary,
+        lastStartedAt: startedAt,
       });
       postNotification(notification, "LynkCo Daily", summary, diagnostic);
       return { summary, diagnostic };
     })
     .catch((error) => {
-      writeDailyState(store, { date: today, success: false, attempt: "exception" });
+      writeDailyState(store, { date: today, success: false, attempt: "exception", lastStartedAt: startedAt });
       postNotification(notification, "LynkCo Daily", "Daily run failed: " + error.message, "");
       return { summary: "Daily run failed: " + error.message, diagnostic: "" };
     });
@@ -240,61 +272,77 @@ function getScriptName() {
 }
 
 function runMain() {
-  const request = typeof $request !== "undefined" ? $request : null;
-  const response = typeof $response !== "undefined" ? $response : null;
-  const store = $persistentStore;
-  const notification = $notification;
-  const httpClient = $httpClient;
-  const argument = typeof $argument !== "undefined" ? $argument : "";
-  const done = typeof $done !== "undefined" ? $done : function noop() {};
-  const config = buildConfig(argument);
+  try {
+    const request = typeof $request !== "undefined" ? $request : null;
+    const response = typeof $response !== "undefined" ? $response : null;
+    const store = $persistentStore;
+    const notification = $notification;
+    const httpClient = $httpClient;
+    const argument = typeof $argument !== "undefined" ? $argument : "";
+    const done = typeof $done !== "undefined" ? $done : function noop() {};
+    const config = buildConfig(argument);
 
-  const isCaptureTrigger = Boolean(request || response);
-  // generic 手动触发：脚本名带 manual 标记。识别失败（$script 不可用）时按 cron 路径处理，
-  // 最坏情况是手动点按弹通知而非弹页，不影响定时/捕获。
-  const isManualTrigger = !isCaptureTrigger && getScriptName().toLowerCase().includes(MANUAL_SCRIPT_MARKER);
+    const isCaptureTrigger = Boolean(request || response);
+    // generic 手动触发：脚本名带 manual 标记。识别失败（$script 不可用）时按 cron 路径处理，
+    // 最坏情况是手动点按弹通知而非弹页，不影响定时/捕获。
+    const isManualTrigger = !isCaptureTrigger && getScriptName().toLowerCase().includes(MANUAL_SCRIPT_MARKER);
 
-  // 完成所有异步任务后才调用 $done()。
-  // 重要：Loon 调用 $done() 后会销毁脚本环境，若在异步请求完成前结束脚本，
-  // 网络请求与通知会被中断（表现为"手动执行没反应"）。
-  const runCron = (input, mode) => {
-    const result = handleCron(input, mode);
-    const finish = (value) => {
-      if (mode === "manual") {
-        // generic 弹页展示结果（官方 generic_example.js 形态）
-        const summary = (value && value.summary) || "";
-        const diagnostic = (value && value.diagnostic) || "";
-        done({
-          title: "LynkCo Daily",
-          htmlMessage: summary + (diagnostic ? "\n\n" + diagnostic : ""),
-        });
+    // 完成所有异步任务后才调用 $done()。
+    // 重要：Loon 调用 $done() 后会销毁脚本环境，若在异步请求完成前结束脚本，
+    // 网络请求与通知会被中断（表现为"手动执行没反应"）。
+    const runCron = (input, mode) => {
+      const result = handleCron(input, mode);
+      const finish = (value) => {
+        if (mode === "manual") {
+          // generic 弹页展示结果（官方 generic_example.js 形态）
+          const summary = (value && value.summary) || "";
+          const diagnostic = (value && value.diagnostic) || "";
+          done({
+            title: "LynkCo Daily",
+            htmlMessage: summary + (diagnostic ? "\n\n" + diagnostic : ""),
+          });
+        } else {
+          done({});
+        }
+      };
+      if (result && typeof result.then === "function") {
+        result.then(finish, finish);
+      } else {
+        finish(result);
+      }
+    };
+
+    if (isCaptureTrigger) {
+      const captured = handleCapture({ config, request, response, store, notification });
+      if (captured.captured && config.autoRunOnCapture) {
+        runCron({ config, store, notification, httpClient, now: new Date() });
       } else {
         done({});
       }
-    };
-    if (result && typeof result.then === "function") {
-      result.then(finish, finish);
-    } else {
-      finish(result);
+      return;
     }
-  };
 
-  if (isCaptureTrigger) {
-    const captured = handleCapture({ config, request, response, store, notification });
-    if (captured.captured && config.autoRunOnCapture) {
-      runCron({ config, store, notification, httpClient, now: new Date() });
-    } else {
-      done({});
+    if (isManualTrigger) {
+      runCron({ config, store, notification, httpClient, now: new Date() }, "manual");
+      return;
     }
-    return;
-  }
 
-  if (isManualTrigger) {
-    runCron({ config, store, notification, httpClient, now: new Date() }, "manual");
-    return;
+    runCron({ config, store, notification, httpClient, now: new Date() });
+  } catch (error) {
+    // 兜底：任何同步异常（含未来改动引入的）都必须调用 $done，否则脚本资源泄漏
+    try {
+      console.log("LynkCo fatal: " + (error && error.message ? error.message : String(error)));
+    } catch (ignored) {
+      /* console 也不可用时静默 */
+    }
+    if (typeof $done !== "undefined") {
+      try {
+        $done({});
+      } catch (ignored) {
+        /* $done 抛错时无再兜底手段 */
+      }
+    }
   }
-
-  runCron({ config, store, notification, httpClient, now: new Date() });
 }
 
 runMain();

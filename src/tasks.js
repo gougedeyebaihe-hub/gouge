@@ -331,6 +331,22 @@ function buildSummary(report, config) {
   return parts.join(" | ");
 }
 
+/** 诊断信息进入通知前剥离已知敏感值（服务端错误响应可能回显凭证） */
+function redactSensitive(text, tokenState) {
+  let output = String(text || "");
+  [
+    tokenState.refreshToken,
+    tokenState.backupRefreshToken,
+    tokenState.token,
+    tokenState.authorization,
+    tokenState.oauthAccessToken,
+    tokenState.oauthRefreshToken,
+  ].forEach((value) => {
+    if (value && value.length >= 6) output = output.split(value).join("***");
+  });
+  return output;
+}
+
 /**
  * 每日主流程：续期 → 签到 → 分享 → 汇总
  * @returns {string} 摘要（用于通知）
@@ -339,7 +355,9 @@ async function runDailyTasks(context) {
   const report = { sign: null, share: null };
   const config = context.config;
 
-  // 1) 续期（失败不阻断，旧 token 可能仍可用）
+  // 1) 续期（失败不阻断，旧 token 可能仍可用）。
+  //    主 refreshToken 失败时回退 backupRefreshToken（捕获覆盖前的旧值，
+  //    用于捕获到陈旧值覆盖新值后无法自愈的场景）；备份成功则提升为新主并清备份。
   if (context.tokenState.refreshToken) {
     try {
       const refreshed = await refreshToken(context, context.tokenState.refreshToken);
@@ -348,7 +366,19 @@ async function runDailyTasks(context) {
         writeTokenState(context.store, context.tokenState);
       }
     } catch (error) {
-      report.refreshError = error;
+      if (context.tokenState.backupRefreshToken) {
+        try {
+          const refreshed = await refreshToken(context, context.tokenState.backupRefreshToken);
+          if (refreshed && refreshed.token) {
+            context.tokenState = Object.assign({}, context.tokenState, refreshed, { backupRefreshToken: "" });
+            writeTokenState(context.store, context.tokenState);
+          }
+        } catch (backupError) {
+          report.refreshError = error;
+        }
+      } else {
+        report.refreshError = error;
+      }
     }
   }
 
@@ -363,7 +393,7 @@ async function runDailyTasks(context) {
 
   const summary = buildSummary(report, config);
 
-  // 4) 诊断信息
+  // 4) 诊断信息（敏感值脱敏后进通知）
   let diagnostic = "";
   if (config.debug) {
     const details = [];
@@ -383,7 +413,7 @@ async function runDailyTasks(context) {
       details.push("shareCode=" + report.shareCode);
     }
     details.push("token=" + summarizeTokenState(context.tokenState));
-    diagnostic = details.join(" | ");
+    diagnostic = redactSensitive(details.join(" | "), context.tokenState);
   }
   report.summary = summary;
 

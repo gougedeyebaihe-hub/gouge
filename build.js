@@ -20,7 +20,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const OUT_DIR = ROOT;
 
-const BUNDLE_VERSION = "v20260818-refactor15";
+const BUNDLE_VERSION = "v20260818-refactor16";
 const PLUGIN_DATE = "2026-08-18";
 
 /* 模块拼接顺序（依赖在前；main.js 为入口分发，仅 bundle 需要） */
@@ -120,8 +120,10 @@ function buildPlugin() {
   const scriptLines = [
     'cron "1 0 * * *" script-path=' + bundleUrl + ",tag=lynkco-daily-0001,timeout=120,argument=" + placeholders + ",enable=true",
     'cron "1 3 * * *" script-path=' + bundleUrl + ",tag=lynkco-daily-0301,timeout=120,argument=" + placeholders + ",enable=true",
-    "http-request " + capturePattern + " script-path=" + bundleUrl + ",requires-body=true,tag=lynkco-capture-request,timeout=30,argument=" + placeholders + ",enable=true",
-    "http-response " + capturePattern + " script-path=" + bundleUrl + ",requires-body=true,tag=lynkco-capture-response,timeout=30,argument=" + placeholders + ",enable=true",
+    // 捕获脚本 timeout 与 cron 一致（120s）：autoRunOnCapture=true 时捕获触发会跑完整任务链，
+    // 30s 超时会中途杀掉执行且无提示
+    "http-request " + capturePattern + " script-path=" + bundleUrl + ",requires-body=true,tag=lynkco-capture-request,timeout=120,argument=" + placeholders + ",enable=true",
+    "http-response " + capturePattern + " script-path=" + bundleUrl + ",requires-body=true,tag=lynkco-capture-response,timeout=120,argument=" + placeholders + ",enable=true",
     "generic script-path=" + bundleUrl + ",tag=lynkco-manual,timeout=120,argument=" + placeholders + ",enable=true",
   ].join("\n");
 

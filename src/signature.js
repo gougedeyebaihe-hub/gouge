@@ -36,15 +36,9 @@ function httpDate(now) {
   );
 }
 
-/** 本地时区 "YYYY-MM-DD HH:mm:ss"（分享风控时间戳用） */
+/** 东八区 "YYYY-MM-DD HH:mm:ss"（分享风控 openTimeStamp 用，与领克中国区服务端口径一致） */
 function formatRiskOpenTime(date) {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const hours = String(date.getUTCHours()).padStart(2, "0");
-  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
-  const seconds = String(date.getUTCSeconds()).padStart(2, "0");
-  return year + "-" + month + "-" + day + " " + hours + ":" + minutes + ":" + seconds;
+  return east8DateTime(date);
 }
 
 /**

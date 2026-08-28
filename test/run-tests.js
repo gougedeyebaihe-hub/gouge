@@ -470,11 +470,163 @@ async function testCaptureFlow() {
   assert("deviceId 捕获正确", stored.deviceId === "dev-9");
   assert("默认不发送捕获通知（captureNotify=0）", notification._posts.length === 0);
 
-  // captureNotify=1 时发送通知
+  // captureNotify=1 时发送通知（通知为诊断界面，凭证必须脱敏）
   const store2 = createMockStore();
   const notification2 = createMockNotification();
   runBundleOnce({ request, store: store2, notification: notification2, httpClient: client, argument: "captureNotify=1" });
   assert("captureNotify=1 时发送捕获通知", notification2._posts.length >= 1);
+  assert("捕获通知不含完整 refreshToken", notification2._posts[0] && !notification2._posts[0].content.includes("rt-captured-1"), notification2._posts[0] && notification2._posts[0].content);
+  assert("捕获通知不含完整 deviceId", notification2._posts[0] && !notification2._posts[0].content.includes("dev-9"), notification2._posts[0] && notification2._posts[0].content);
+  assert("捕获通知含脱敏形态（***）", notification2._posts[0] && notification2._posts[0].content.includes("***"), notification2._posts[0] && notification2._posts[0].content);
+}
+
+async function testStoreReadFallback() {
+  console.log("\n== 兜底：$persistentStore.read 抛错不崩溃、$done 必达 ==");
+  const brokenStore = {
+    read: () => {
+      throw new Error("store exploded");
+    },
+    write: () => {},
+  };
+  const notification = createMockNotification();
+  const sandbox = runBundleOnce({
+    argument: "debug=1",
+    store: brokenStore,
+    notification,
+    httpClient: createMockHttpClient([]).client,
+  });
+  await waitFor(() => sandbox.__doneCalled, 2000);
+
+  assert("read 抛错时 $done 仍被调用", sandbox.__doneCalled === true);
+  assert("read 抛错后按无 token 流程提示", notification._posts.length >= 1, JSON.stringify(notification._posts));
+}
+
+async function testCooldown() {
+  console.log("\n== 流程：执行冷却（并发触发收敛为单次执行） ==");
+  const store = createMockStore();
+  store.write(JSON.stringify({ refreshToken: "rt-cd", token: "t-cd" }), "lynkco.share.tokenState");
+  const notificationA = createMockNotification();
+
+  // A：完整流程先启动（同步前缀即写入 lastStartedAt）
+  const flow = createFullFlowRoutes();
+  const { client } = createMockHttpClient(flow.routes);
+  flow.setClient(client);
+  const sandboxA = runBundleOnce({ argument: TEST_CONFIG_ARGUMENT, store, notification: notificationA, httpClient: client });
+
+  // B：紧随其后手动触发——应被冷却拦截，不产生任何请求
+  const { client: clientB, calls: callsB } = createMockHttpClient([]);
+  const notificationB = createMockNotification();
+  const sandboxB = runBundleOnce({
+    argument: { shareEnabled: false, debug: true },
+    store,
+    notification: notificationB,
+    httpClient: clientB,
+    script: { name: "lynkco-manual" },
+  });
+  await waitFor(() => sandboxA.__doneCalled && sandboxB.__doneCalled, 3000);
+
+  assert("A 正常执行（有请求）", client.calls.length > 0, "calls=" + client.calls.length);
+  assert("冷却期内的手动触发被拦截（无请求）", callsB.length === 0, "calls=" + callsB.length);
+  assert("拦截提示为执行中/刚完成", sandboxB.__doneArgs && sandboxB.__doneArgs.htmlMessage && sandboxB.__doneArgs.htmlMessage.includes("already running"), sandboxB.__doneArgs && sandboxB.__doneArgs.htmlMessage);
+}
+
+async function testBackupRefresh() {
+  console.log("\n== 流程：主 refreshToken 失效回退 backup ==");
+  const store = createMockStore();
+  const notification = createMockNotification();
+  store.write(JSON.stringify({
+    refreshToken: "rt-stale",
+    backupRefreshToken: "rt-good",
+    token: "t-old",
+  }), "lynkco.share.tokenState");
+
+  const routes = [
+    {
+      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
+      respond: ({ url }) => {
+        if (url.includes("refreshToken=rt-good")) {
+          return {
+            data: JSON.stringify({
+              code: "success",
+              data: { centerTokenDto: { token: "t-new", refreshToken: "rt-new" } },
+            }),
+          };
+        }
+        return { data: JSON.stringify({ code: "error", message: "invalid token" }) };
+      },
+    },
+    {
+      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
+      respond: () => ({ data: JSON.stringify({ code: "success", data: { signStatus: 1 } }) }),
+    },
+  ];
+  const { client } = createMockHttpClient(routes);
+
+  runBundleOnce({
+    argument: { shareEnabled: false, debug: true },
+    store,
+    notification,
+    httpClient: client,
+  });
+  await waitFor(() => notification._posts.length > 0, 3000);
+
+  const stored = JSON.parse(store._data["lynkco.share.tokenState"]);
+  assert("backup 成功后被提升为新主并清空", stored.refreshToken === "rt-new" && stored.backupRefreshToken === "", JSON.stringify(stored));
+  assert("任务正常完成", notification._posts[0] && notification._posts[0].content.includes("Sign: ok"), notification._posts[0] && notification._posts[0].content);
+}
+
+function testTimezone() {
+  console.log("\n== 时区：east8 工具统一（localDayKey 与 formatRiskOpenTime 同源） ==");
+  const sandbox = createBundleSandbox();
+  vm.runInContext(`
+    this.risk = (d) => formatRiskOpenTime(d);
+    this.day = (d) => east8DayKey(d);
+  `, sandbox);
+
+  assert(
+    "formatRiskOpenTime 为东八区（UTC 17:30 → 次日 01:30）",
+    sandbox.risk(new Date(Date.UTC(2026, 7, 13, 17, 30, 0))) === "2026-08-14 01:30:00",
+    sandbox.risk(new Date(Date.UTC(2026, 7, 13, 17, 30, 0))),
+  );
+  assert(
+    "east8DayKey 与 localDayKey 同口径（UTC 16:30 → 次日）",
+    sandbox.day(new Date(Date.UTC(2026, 7, 13, 16, 30, 0))) === "2026-08-14",
+    sandbox.day(new Date(Date.UTC(2026, 7, 13, 16, 30, 0))),
+  );
+}
+
+async function testDiagnosticRedaction() {
+  console.log("\n== 诊断脱敏：错误响应回显的凭证被替换 ==");
+  const store = createMockStore();
+  const notification = createMockNotification();
+  store.write(JSON.stringify({ refreshToken: "rt-secret-abc123", token: "t-ok" }), "lynkco.share.tokenState");
+
+  const routes = [
+    // refresh 全部失败，且错误响应回显 refreshToken 值（认证网关常见行为）
+    {
+      match: (method, url) => method === "get" && url.includes("/auth/login/refresh"),
+      respond: () => ({
+        data: JSON.stringify({ code: "error", message: "invalid token rt-secret-abc123" }),
+      }),
+    },
+    {
+      match: (method, url) => method === "get" && url.includes("/up/api/v1/user/sign/day/info"),
+      respond: () => ({ data: JSON.stringify({ code: "success", data: { signStatus: 1 } }) }),
+    },
+  ];
+  const { client } = createMockHttpClient(routes);
+
+  runBundleOnce({
+    argument: { shareEnabled: false, debug: true },
+    store,
+    notification,
+    httpClient: client,
+  });
+  await waitFor(() => notification._posts.length > 0, 3000);
+
+  const post = notification._posts[0];
+  assert("通知不含错误响应回显的凭证", post && !post.content.includes("rt-secret-abc123"), post && post.content);
+  assert("诊断上下文仍保留（refresh=）", post && post.content.includes("refresh="), post && post.content);
 }
 
 async function testOncePerDay() {
@@ -578,6 +730,10 @@ function testPluginFormat() {
   });
   const manualLine = scriptLines.find((line) => line.startsWith("generic"));
   assert("generic 手动触发脚本存在（tag=lynkco-manual）", Boolean(manualLine) && manualLine.includes("tag=lynkco-manual"), manualLine || "");
+  const captureLines = scriptLines.filter((line) => line.startsWith("http-"));
+  captureLines.forEach((line) => {
+    assert("捕获脚本 timeout=120（与任务链最坏时长匹配）", line.includes("timeout=120"), line.slice(0, 80));
+  });
   const placeholders = Array.from(PLUGIN.matchAll(/\{([a-zA-Z0-9_]+)\}/g), (match) => match[1]);
   assert("占位符覆盖全部 13 参数", new Set(placeholders).size === 13 && placeholders.length >= 13);
 
@@ -594,11 +750,16 @@ function testPluginFormat() {
 async function main() {
   testCryptoVectors();
   testSignatureFormat();
+  testTimezone();
   await testNoTokenFlow();
   await testFullFlow(TEST_CONFIG_ARGUMENT, "完整签到+分享（字符串参数）");
   await testFullFlow(TEST_CONFIG_OBJECT, "完整签到+分享（对象参数 / argument=[{...}] 形态）");
   await testShareValidationFlow();
   await testCaptureFlow();
+  await testStoreReadFallback();
+  await testCooldown();
+  await testBackupRefresh();
+  await testDiagnosticRedaction();
   await testOncePerDay();
   await testManualTrigger();
   testPluginFormat();

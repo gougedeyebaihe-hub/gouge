@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260818-refactor15
+ * v20260818-refactor16
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -314,6 +314,35 @@ function createNonce() {
 
 
 
+/** 东八区时间分量（UTC+8，不依赖设备时区） */
+function east8Parts(date) {
+  const local = new Date((date || new Date()).getTime() + 8 * 60 * 60 * 1000);
+  return {
+    year: local.getUTCFullYear(),
+    month: String(local.getUTCMonth() + 1).padStart(2, "0"),
+    day: String(local.getUTCDate()).padStart(2, "0"),
+    hours: String(local.getUTCHours()).padStart(2, "0"),
+    minutes: String(local.getUTCMinutes()).padStart(2, "0"),
+    seconds: String(local.getUTCSeconds()).padStart(2, "0"),
+  };
+}
+
+/** 东八区日期键 YYYY-MM-DD */
+function east8DayKey(date) {
+  const parts = east8Parts(date);
+  return parts.year + "-" + parts.month + "-" + parts.day;
+}
+
+/** 东八区完整时间 "YYYY-MM-DD HH:mm:ss" */
+function east8DateTime(date) {
+  const parts = east8Parts(date);
+  return (
+    parts.year + "-" + parts.month + "-" + parts.day + " " +
+    parts.hours + ":" + parts.minutes + ":" + parts.seconds
+  );
+}
+
+
 const H5_SIGNATURE_HEADERS = "X-Ca-Key,X-Ca-Timestamp,X-Ca-Nonce,X-Ca-Signature-Method";
 const NATIVE_SIGNATURE_HEADERS = "x-ca-nonce,x-ca-key,x-ca-timestamp";
 
@@ -334,15 +363,9 @@ function httpDate(now) {
   );
 }
 
-/** 本地时区 "YYYY-MM-DD HH:mm:ss"（分享风控时间戳用） */
+/** 东八区 "YYYY-MM-DD HH:mm:ss"（分享风控 openTimeStamp 用，与领克中国区服务端口径一致） */
 function formatRiskOpenTime(date) {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const hours = String(date.getUTCHours()).padStart(2, "0");
-  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
-  const seconds = String(date.getUTCSeconds()).padStart(2, "0");
-  return year + "-" + month + "-" + day + " " + hours + ":" + minutes + ":" + seconds;
+  return east8DateTime(date);
 }
 
 /**
@@ -608,6 +631,7 @@ function emptyTokenState() {
   return {
     token: "",
     refreshToken: "",
+    backupRefreshToken: "", // 捕获覆盖前的旧 refreshToken（refresh 失败时回退用）
     oauthAccessToken: "",
     oauthRefreshToken: "",
     authorization: "",
@@ -632,7 +656,16 @@ function serializeTokenState(tokenState) {
 }
 
 function readTokenState(store) {
-  return parseTokenState(store && store.read ? store.read(TOKEN_STATE_KEY) : "");
+  // store.read 本身也可能抛错（与 readDailyState 的防护对称，保证 $done 必达路径不遗漏）
+  let raw = "";
+  if (store && store.read) {
+    try {
+      raw = store.read(TOKEN_STATE_KEY) || "";
+    } catch (error) {
+      raw = "";
+    }
+  }
+  return parseTokenState(raw);
 }
 
 function writeTokenState(store, tokenState) {
@@ -649,19 +682,20 @@ function hasTokenState(tokenState) {
   );
 }
 
-/* ---------------- 每日状态（oncePerDay 用） ---------------- */
+/* ---------------- 每日状态（oncePerDay + 执行冷却用） ---------------- */
 
 function readDailyState(store) {
-  if (!store || !store.read) return { date: "", success: false, attempt: "" };
+  if (!store || !store.read) return { date: "", success: false, attempt: "", lastStartedAt: 0 };
   try {
     const parsed = JSON.parse(store.read(DAILY_STATE_KEY) || "");
     return {
       date: parsed.date || "",
       success: Boolean(parsed.success),
       attempt: parsed.attempt || "",
+      lastStartedAt: Number(parsed.lastStartedAt) || 0,
     };
   } catch (error) {
-    return { date: "", success: false, attempt: "" };
+    return { date: "", success: false, attempt: "", lastStartedAt: 0 };
   }
 }
 
@@ -669,14 +703,9 @@ function writeDailyState(store, state) {
   safeWrite(store, DAILY_STATE_KEY, JSON.stringify(state));
 }
 
-/** 本地日期键 YYYY-MM-DD（东八区） */
+/** 本地日期键 YYYY-MM-DD（东八区，与分享风控时间戳同口径） */
 function localDayKey(date) {
-  const local = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-  return [
-    local.getUTCFullYear(),
-    String(local.getUTCMonth() + 1).padStart(2, "0"),
-    String(local.getUTCDate()).padStart(2, "0"),
-  ].join("-");
+  return east8DayKey(date);
 }
 
 /* ---------------- 分享验证（certifyId） ---------------- */
@@ -749,11 +778,19 @@ const SHARE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) " +
   "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1";
 
+/** $httpClient 回调 error 可能是字符串或对象，统一转可读文本（避免 "[object Object]"） */
+function requestErrorText(error) {
+  if (error == null) return "unknown error";
+  if (typeof error === "string") return error;
+  if (error && error.message) return error.message;
+  return String(error);
+}
+
 function requestAsync(httpClient, method, params) {
   return new Promise((resolve, reject) => {
     httpClient[method](params, (error, response, data) => {
       if (error) {
-        reject(new Error(error));
+        reject(new Error(requestErrorText(error)));
         return;
       }
       resolve({ response, data });
@@ -877,11 +914,12 @@ function buildDeviceHeaders(config) {
 
 /* ---------------- H5 签名请求 ---------------- */
 
-/** 每个请求独立 nonce/timestamp */
+/** 每个请求独立 nonce/timestamp/date（date 为 RFC1123 GMT，签名串与请求头共用同一值） */
 function freshRequestContext(context) {
   return Object.assign({}, context, {
     nonce: createNonce(),
     timestamp: String(Date.now()),
+    date: httpDate(),
   });
 }
 
@@ -936,6 +974,7 @@ function buildNativeRequest(context, { method, host, uri, body, extraHeaders }) 
     xCaKey: context.config.xCaKey,
     nonce: context.nonce,
     timestamp: context.timestamp,
+    date: context.date,
     extraCaHeaders: context.config.nativeExtraCaHeaders,
   });
   const signature = signBase64HmacSha256(context.config.appSecret, signed.signString);
@@ -952,6 +991,7 @@ function buildNativeRequest(context, { method, host, uri, body, extraHeaders }) 
         xCaKey: context.config.xCaKey,
         nonce: context.nonce,
         timestamp: context.timestamp,
+        date: context.date,
         signature,
         contentMd5: signed.contentMd5,
       }),
@@ -1047,6 +1087,7 @@ async function refreshToken(context, refreshTokenValue) {
             xCaKey: config.xCaKey,
             nonce: attemptContext.nonce,
             timestamp: attemptContext.timestamp,
+            date: attemptContext.date,
             extraCaHeaders: config.nativeExtraCaHeaders,
           });
           return {
@@ -1062,6 +1103,7 @@ async function refreshToken(context, refreshTokenValue) {
                 xCaKey: config.xCaKey,
                 nonce: attemptContext.nonce,
                 timestamp: attemptContext.timestamp,
+                date: attemptContext.date,
                 signature: signBase64HmacSha256(config.appSecret, signed.signString),
                 contentMd5: signed.contentMd5,
               }),
@@ -1579,6 +1621,22 @@ function buildSummary(report, config) {
   return parts.join(" | ");
 }
 
+/** 诊断信息进入通知前剥离已知敏感值（服务端错误响应可能回显凭证） */
+function redactSensitive(text, tokenState) {
+  let output = String(text || "");
+  [
+    tokenState.refreshToken,
+    tokenState.backupRefreshToken,
+    tokenState.token,
+    tokenState.authorization,
+    tokenState.oauthAccessToken,
+    tokenState.oauthRefreshToken,
+  ].forEach((value) => {
+    if (value && value.length >= 6) output = output.split(value).join("***");
+  });
+  return output;
+}
+
 /**
  * 每日主流程：续期 → 签到 → 分享 → 汇总
  * @returns {string} 摘要（用于通知）
@@ -1587,7 +1645,9 @@ async function runDailyTasks(context) {
   const report = { sign: null, share: null };
   const config = context.config;
 
-  // 1) 续期（失败不阻断，旧 token 可能仍可用）
+  // 1) 续期（失败不阻断，旧 token 可能仍可用）。
+  //    主 refreshToken 失败时回退 backupRefreshToken（捕获覆盖前的旧值，
+  //    用于捕获到陈旧值覆盖新值后无法自愈的场景）；备份成功则提升为新主并清备份。
   if (context.tokenState.refreshToken) {
     try {
       const refreshed = await refreshToken(context, context.tokenState.refreshToken);
@@ -1596,7 +1656,19 @@ async function runDailyTasks(context) {
         writeTokenState(context.store, context.tokenState);
       }
     } catch (error) {
-      report.refreshError = error;
+      if (context.tokenState.backupRefreshToken) {
+        try {
+          const refreshed = await refreshToken(context, context.tokenState.backupRefreshToken);
+          if (refreshed && refreshed.token) {
+            context.tokenState = Object.assign({}, context.tokenState, refreshed, { backupRefreshToken: "" });
+            writeTokenState(context.store, context.tokenState);
+          }
+        } catch (backupError) {
+          report.refreshError = error;
+        }
+      } else {
+        report.refreshError = error;
+      }
     }
   }
 
@@ -1611,7 +1683,7 @@ async function runDailyTasks(context) {
 
   const summary = buildSummary(report, config);
 
-  // 4) 诊断信息
+  // 4) 诊断信息（敏感值脱敏后进通知）
   let diagnostic = "";
   if (config.debug) {
     const details = [];
@@ -1631,7 +1703,7 @@ async function runDailyTasks(context) {
       details.push("shareCode=" + report.shareCode);
     }
     details.push("token=" + summarizeTokenState(context.tokenState));
-    diagnostic = details.join(" | ");
+    diagnostic = redactSensitive(details.join(" | "), context.tokenState);
   }
   report.summary = summary;
 
@@ -1672,7 +1744,10 @@ function getHeader(headers, names) {
   const keys = Object.keys(headers);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
-    if (normalizedNames.includes(normalizeHeaderName(key))) return headers[key] || "";
+    if (normalizedNames.includes(normalizeHeaderName(key))) {
+      const value = headers[key];
+      return value == null ? "" : String(value);
+    }
   }
   return "";
 }
@@ -1772,21 +1847,32 @@ function handleCapture(input) {
   }
 
   const previous = readTokenState(store);
+  // 捕获值可能来自排队/重试的旧流量：覆盖现有 refreshToken 前把旧值挪到 backup，
+  // refresh 失败时可回退（避免陈旧值覆盖刚换的新 token 后无法自愈）
   const merged = Object.assign({}, previous, captured);
+  if (
+    captured.refreshToken &&
+    previous.refreshToken &&
+    captured.refreshToken !== previous.refreshToken
+  ) {
+    merged.backupRefreshToken = previous.refreshToken;
+  }
   const fingerprintChanged = capturedFingerprint(merged) !== capturedFingerprint(previous);
   writeTokenState(store, merged);
 
-  // 捕获通知默认关闭（captureNotify=1 时开启；需要重抓 token 时临时打开）
+  // 捕获通知默认关闭（captureNotify=1 时开启；需要重抓 token 时临时打开）。
+  // 通知是诊断界面：所有凭证字段一律脱敏（maskValue），不在锁屏暴露完整值。
   if (config.captureNotify) {
     const body = JSON.stringify({
       capturedAt: new Date().toISOString(),
       source: response ? "response" : "request",
-      refreshToken: merged.refreshToken || "",
-      deviceId: merged.deviceId || "",
+      refreshToken: merged.refreshToken ? maskValue(merged.refreshToken) : "",
+      deviceId: merged.deviceId ? maskValue(merged.deviceId) : "",
       deviceType: merged.deviceType || "",
       appVersion: merged.appVersion || "",
-      token: merged.token ? merged.token.slice(0, 12) + "..." : "",
-      authorization: merged.authorization ? merged.authorization.slice(0, 16) + "..." : "",
+      token: merged.token ? maskValue(merged.token) : "",
+      authorization: merged.authorization ? maskValue(merged.authorization) : "",
+      changed: fingerprintChanged,
     });
     postNotification(notification, "LynkCo Token Captured", body, "");
   }
@@ -1802,6 +1888,29 @@ function handleCron(input, mode) {
   // generic 手动触发：用户主动点按 = 强制执行，绕过 oncePerDay 静默跳过
   const isManual = mode === "manual";
 
+  // 执行冷却：并发触发（手动/捕获触发与 cron 重叠）在无 CAS 环境下无法跨实例互斥，
+  // 用 lastStartedAt 时间戳把 5 分钟内的重复触发收敛为单次执行；手动触发给出提示。
+  const daily = readDailyState(store);
+  const cooldownMs = 5 * 60 * 1000;
+  const withinCooldown = daily.lastStartedAt && now.getTime() - daily.lastStartedAt < cooldownMs;
+  if (withinCooldown) {
+    if (isManual) {
+      postNotification(notification, "LynkCo Daily", "A task is already running or just finished. Try again in a few minutes.", "");
+      return Promise.resolve({
+        summary: "A task is already running or just finished. Try again in a few minutes.",
+        diagnostic: "",
+      });
+    }
+    return Promise.resolve({ summary: "already running", diagnostic: "" });
+  }
+
+  if (config.oncePerDay && !isManual) {
+    if (daily.date === today && daily.success) {
+      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
+      return Promise.resolve({ summary: "already done today", diagnostic: "" });
+    }
+  }
+
   const storedToken = readTokenState(store);
   const configToken = config.refreshToken || "";
   const tokenState = Object.assign({}, storedToken);
@@ -1811,7 +1920,6 @@ function handleCron(input, mode) {
   if (config.appVersion && !tokenState.appVersion) tokenState.appVersion = config.appVersion;
 
   if (!hasTokenState(tokenState)) {
-    const daily = readDailyState(store);
     if (daily.date !== today) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
       postNotification(notification, "LynkCo Daily", "No token saved.", "Open Lynk & Co once to capture token.");
@@ -1822,13 +1930,8 @@ function handleCron(input, mode) {
     });
   }
 
-  if (config.oncePerDay && !isManual) {
-    const daily = readDailyState(store);
-    if (daily.date === today && daily.success) {
-      // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
-      return Promise.resolve({ summary: "already done today", diagnostic: "" });
-    }
-  }
+  const startedAt = now.getTime();
+  writeDailyState(store, { date: today, success: false, attempt: "running", lastStartedAt: startedAt });
 
   const context = {
     config,
@@ -1845,12 +1948,13 @@ function handleCron(input, mode) {
         date: today,
         success: summary.includes("Sign: ok") && (!config.shareEnabled || summary.includes("Share: ok")),
         attempt: summary,
+        lastStartedAt: startedAt,
       });
       postNotification(notification, "LynkCo Daily", summary, diagnostic);
       return { summary, diagnostic };
     })
     .catch((error) => {
-      writeDailyState(store, { date: today, success: false, attempt: "exception" });
+      writeDailyState(store, { date: today, success: false, attempt: "exception", lastStartedAt: startedAt });
       postNotification(notification, "LynkCo Daily", "Daily run failed: " + error.message, "");
       return { summary: "Daily run failed: " + error.message, diagnostic: "" };
     });
@@ -1868,61 +1972,77 @@ function getScriptName() {
 }
 
 function runMain() {
-  const request = typeof $request !== "undefined" ? $request : null;
-  const response = typeof $response !== "undefined" ? $response : null;
-  const store = $persistentStore;
-  const notification = $notification;
-  const httpClient = $httpClient;
-  const argument = typeof $argument !== "undefined" ? $argument : "";
-  const done = typeof $done !== "undefined" ? $done : function noop() {};
-  const config = buildConfig(argument);
+  try {
+    const request = typeof $request !== "undefined" ? $request : null;
+    const response = typeof $response !== "undefined" ? $response : null;
+    const store = $persistentStore;
+    const notification = $notification;
+    const httpClient = $httpClient;
+    const argument = typeof $argument !== "undefined" ? $argument : "";
+    const done = typeof $done !== "undefined" ? $done : function noop() {};
+    const config = buildConfig(argument);
 
-  const isCaptureTrigger = Boolean(request || response);
-  // generic 手动触发：脚本名带 manual 标记。识别失败（$script 不可用）时按 cron 路径处理，
-  // 最坏情况是手动点按弹通知而非弹页，不影响定时/捕获。
-  const isManualTrigger = !isCaptureTrigger && getScriptName().toLowerCase().includes(MANUAL_SCRIPT_MARKER);
+    const isCaptureTrigger = Boolean(request || response);
+    // generic 手动触发：脚本名带 manual 标记。识别失败（$script 不可用）时按 cron 路径处理，
+    // 最坏情况是手动点按弹通知而非弹页，不影响定时/捕获。
+    const isManualTrigger = !isCaptureTrigger && getScriptName().toLowerCase().includes(MANUAL_SCRIPT_MARKER);
 
-  // 完成所有异步任务后才调用 $done()。
-  // 重要：Loon 调用 $done() 后会销毁脚本环境，若在异步请求完成前结束脚本，
-  // 网络请求与通知会被中断（表现为"手动执行没反应"）。
-  const runCron = (input, mode) => {
-    const result = handleCron(input, mode);
-    const finish = (value) => {
-      if (mode === "manual") {
-        // generic 弹页展示结果（官方 generic_example.js 形态）
-        const summary = (value && value.summary) || "";
-        const diagnostic = (value && value.diagnostic) || "";
-        done({
-          title: "LynkCo Daily",
-          htmlMessage: summary + (diagnostic ? "\n\n" + diagnostic : ""),
-        });
+    // 完成所有异步任务后才调用 $done()。
+    // 重要：Loon 调用 $done() 后会销毁脚本环境，若在异步请求完成前结束脚本，
+    // 网络请求与通知会被中断（表现为"手动执行没反应"）。
+    const runCron = (input, mode) => {
+      const result = handleCron(input, mode);
+      const finish = (value) => {
+        if (mode === "manual") {
+          // generic 弹页展示结果（官方 generic_example.js 形态）
+          const summary = (value && value.summary) || "";
+          const diagnostic = (value && value.diagnostic) || "";
+          done({
+            title: "LynkCo Daily",
+            htmlMessage: summary + (diagnostic ? "\n\n" + diagnostic : ""),
+          });
+        } else {
+          done({});
+        }
+      };
+      if (result && typeof result.then === "function") {
+        result.then(finish, finish);
+      } else {
+        finish(result);
+      }
+    };
+
+    if (isCaptureTrigger) {
+      const captured = handleCapture({ config, request, response, store, notification });
+      if (captured.captured && config.autoRunOnCapture) {
+        runCron({ config, store, notification, httpClient, now: new Date() });
       } else {
         done({});
       }
-    };
-    if (result && typeof result.then === "function") {
-      result.then(finish, finish);
-    } else {
-      finish(result);
+      return;
     }
-  };
 
-  if (isCaptureTrigger) {
-    const captured = handleCapture({ config, request, response, store, notification });
-    if (captured.captured && config.autoRunOnCapture) {
-      runCron({ config, store, notification, httpClient, now: new Date() });
-    } else {
-      done({});
+    if (isManualTrigger) {
+      runCron({ config, store, notification, httpClient, now: new Date() }, "manual");
+      return;
     }
-    return;
-  }
 
-  if (isManualTrigger) {
-    runCron({ config, store, notification, httpClient, now: new Date() }, "manual");
-    return;
+    runCron({ config, store, notification, httpClient, now: new Date() });
+  } catch (error) {
+    // 兜底：任何同步异常（含未来改动引入的）都必须调用 $done，否则脚本资源泄漏
+    try {
+      console.log("LynkCo fatal: " + (error && error.message ? error.message : String(error)));
+    } catch (ignored) {
+      /* console 也不可用时静默 */
+    }
+    if (typeof $done !== "undefined") {
+      try {
+        $done({});
+      } catch (ignored) {
+        /* $done 抛错时无再兜底手段 */
+      }
+    }
   }
-
-  runCron({ config, store, notification, httpClient, now: new Date() });
 }
 
 runMain();

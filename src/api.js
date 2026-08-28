@@ -29,11 +29,19 @@ const SHARE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) " +
   "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1";
 
+/** $httpClient 回调 error 可能是字符串或对象，统一转可读文本（避免 "[object Object]"） */
+function requestErrorText(error) {
+  if (error == null) return "unknown error";
+  if (typeof error === "string") return error;
+  if (error && error.message) return error.message;
+  return String(error);
+}
+
 function requestAsync(httpClient, method, params) {
   return new Promise((resolve, reject) => {
     httpClient[method](params, (error, response, data) => {
       if (error) {
-        reject(new Error(error));
+        reject(new Error(requestErrorText(error)));
         return;
       }
       resolve({ response, data });
@@ -157,11 +165,12 @@ function buildDeviceHeaders(config) {
 
 /* ---------------- H5 签名请求 ---------------- */
 
-/** 每个请求独立 nonce/timestamp */
+/** 每个请求独立 nonce/timestamp/date（date 为 RFC1123 GMT，签名串与请求头共用同一值） */
 function freshRequestContext(context) {
   return Object.assign({}, context, {
     nonce: createNonce(),
     timestamp: String(Date.now()),
+    date: httpDate(),
   });
 }
 
@@ -216,6 +225,7 @@ function buildNativeRequest(context, { method, host, uri, body, extraHeaders }) 
     xCaKey: context.config.xCaKey,
     nonce: context.nonce,
     timestamp: context.timestamp,
+    date: context.date,
     extraCaHeaders: context.config.nativeExtraCaHeaders,
   });
   const signature = signBase64HmacSha256(context.config.appSecret, signed.signString);
@@ -232,6 +242,7 @@ function buildNativeRequest(context, { method, host, uri, body, extraHeaders }) 
         xCaKey: context.config.xCaKey,
         nonce: context.nonce,
         timestamp: context.timestamp,
+        date: context.date,
         signature,
         contentMd5: signed.contentMd5,
       }),
@@ -327,6 +338,7 @@ async function refreshToken(context, refreshTokenValue) {
             xCaKey: config.xCaKey,
             nonce: attemptContext.nonce,
             timestamp: attemptContext.timestamp,
+            date: attemptContext.date,
             extraCaHeaders: config.nativeExtraCaHeaders,
           });
           return {
@@ -342,6 +354,7 @@ async function refreshToken(context, refreshTokenValue) {
                 xCaKey: config.xCaKey,
                 nonce: attemptContext.nonce,
                 timestamp: attemptContext.timestamp,
+                date: attemptContext.date,
                 signature: signBase64HmacSha256(config.appSecret, signed.signString),
                 contentMd5: signed.contentMd5,
               }),
