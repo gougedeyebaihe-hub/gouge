@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260828-refactor17
+ * v20260828-refactor18
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -489,8 +489,14 @@ function buildNativeSignedHeaders(input) {
 
 
 /* 领克网关密钥表（X-Ca-Key → AppSecret）。
- * 2026-07 轮换后新 key 为 203760416；旧 key 204644386 已 403，保留作回退。
- * 注意：AppSecret 无法通过抓包获得，若 403 且 key 再次轮换需重新提取（见 docs/protocol.md）。 */
+ * 来源（2026-08 现场核实）：
+ *   - 204644386/QCl7udM3... 为 H5 前端 vendor JS 明文密钥对（crypto-js HmacSHA256 直接使用，
+ *     2026-08 抓取 h5.lynkco.com 的 vendor.c0eb609d.js 确认仍在线使用，可能多密钥并存），
+ *     最初经 Loon MitM 抓取 H5 JS 提取；
+ *   - 203760416/e1msl9aqd... 为当前脚本生效密钥对（与 rulaizhi/LynkCoHelper 2021 config.json 同值，
+ *     来源为当时抓取的 JS 版本或公开仓库，无法完全还原）。
+ * 提取方法：轮换时用 Loon MitM 抓 H5 vendor JS，从签名实现中读明文密钥对（无需 root 逆向），
+ * 详见 docs/protocol.md。 */
 const LYNK_CO_APP_SECRETS = {
   "203760416": "e1msl9aqd101gfcjpo873hrs5jg752og",
   "204644386": "QCl7udM3PB9cOIOwquwPglikFQnzJRsX",

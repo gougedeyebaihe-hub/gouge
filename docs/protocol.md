@@ -61,10 +61,10 @@ application/json
 
 | X-Ca-Key | AppSecret | 状态 |
 | --- | --- | --- |
-| `203760416` | `e1msl9aqd101gfcjpo873hrs5jg752og` | 2026-07 轮换后的新值（当前默认） |
-| `204644386` | `QCl7udM3PB9cOIOwquwPglikFQnzJRsX` | 旧值，已全部 403 |
+| `203760416` | `e1msl9aqd101gfcjpo873hrs5jg752og` | 当前脚本生效值（与 rulaizhi/LynkCoHelper 2021 config.json 同值） |
+| `204644386` | `QCl7udM3PB9cOIOwquwPglikFQnzJRsX` | H5 前端 vendor JS 明文密钥对（2026-08 抓取线上 JS 确认仍在使用；可能多密钥并存/按客户端路由） |
 
-**AppSecret 无法通过抓包获得**（请求头只有 X-Ca-Key，无法从 X-Ca-Signature 反推）。
+**密钥可从 H5 前端 JS 明文提取（2026-08 实证）**：`https://h5.lynkco.com/app-h5/dist/web/vendor.<hash>.js`（页面资源含完整 X-Ca 签名实现），密钥对直接作为 crypto-js HmacSHA256 的密钥字符串使用（现场：`a()(w,"QCl7udM3...")`）。用 Loon MitM 抓取该 JS 即可提取，**无需逆向原生 App**。请求头只有 X-Ca-Key，无法从 X-Ca-Signature 反推密钥（HMAC 单向）。
 
 ## 3. 关键接口
 
@@ -94,21 +94,22 @@ application/json
 2. 脚本尝试顺序：已捕获的 certifyId → `/auth/v1/security/config` 获取 certifyId → 携带 `certifyId` 重试。
 3. 全部失败：需要打开领克 App 手动分享一次（脚本从流量中捕获 certifyId 复用）。
 
-## 4. 2026-07/08 变更时间线（旧脚本失效原因）
+## 4. 变更时间线（旧脚本失效原因）
 
-- **2026-07 中旬**：签名密钥轮换，旧 key `204644386` 全部 403；新 key `203760416`。
+- **2026-07 中旬**：脚本切换至 `203760416` 密钥对；`204644386` 对曾出现 403，但 2026-08 实测 H5 前端仍在用该对（可能多密钥并存/按客户端路由）——"轮换"的准确时间线未完全还原，勿再断言"旧 key 全部失效"。
 - **2026-07 中旬**：签到接口 `/up/api/v1/user/sign` → `/up/api/v1/user/sign/upgrade`（旧路径 400）；新接口走原生 SDK 签名体系。
 - **2026-07 下旬**：分享改为两步法（`getShareCode` → `shareReporting`），每日 1 次上限；单请求上报（`reporting?type=99/3`）废弃。
 - **2026-08**：App 4.2.4 登录/换票域从 `app-services.lynkco.com.cn` 迁往 `gric-api.geely.com`。
 
 ## 5. 密钥轮换应对（App 大版本更新时）
 
-1. 更新后脚本报 403（诊断 `type=signature-or-key(403)`）。
-2. 确认新 key：抓包 App 的签到请求，看 `X-Ca-Key`（或小写 `x-ca-key`）字段。
-3. 新 AppSecret 提取方法（参考 shovelshit/LynkCoHelper 的 `AppSecret_逆向分析记录.md`）：
-   - 需要 userdebug/root 设备；`am start -D` + jdb 在 `com.safe.cons.LynkCoConstants$g.<clinit>` 断点提取。
-   - 门槛较高；备选：等待公开仓库（GitHub 搜 `lynkco`）更新。
-4. 把新值写入 `src/config.js` 的 `LYNK_CO_APP_SECRETS` 表，`node build.js` 重新构建。
+1. 更新后脚本报 403（诊断 `signErr=`/`shareErr=` 含 HTTP 403）。
+2. 确认发生轮换：抓包 App 的签到请求，看 `X-Ca-Key`（或小写 `x-ca-key`）字段是否变化；**注意多密钥并存可能——key 变了不代表旧对全失效，先用现有值直接复测**。
+3. 提取新密钥对（按优先级）：
+   - **首选（已实证，无需 root）**：Loon MitM 抓取 H5 前端 vendor JS（`h5.lynkco.com` 页面资源 `vendor.<hash>.js`），搜索 X-Ca 签名实现中作为 HMAC 密钥字符串明文使用的密钥对（`204644386` 对即以此法提取，2026-08 现场确认）。
+   - 兜底：参考 shovelshit/LynkCoHelper 的 `AppSecret_逆向分析记录.md`（userdebug/root 设备 + `am start -D` + jdb 在 `com.safe.cons.LynkCoConstants$g.<clinit>` 断点提取）。
+   - 备选：等待公开仓库（GitHub 搜 `lynkco`）更新。
+4. 把新值写入 `src/config.js` 的 `LYNK_CO_APP_SECRETS` 表，`node build.js` 重新构建；也可用插件 UI 的 `xCaKey`/`appSecret` 参数临时覆盖（无需重装插件）。
 
 ## 6. 参考仓库
 
