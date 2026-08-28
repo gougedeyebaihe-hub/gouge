@@ -481,6 +481,33 @@ async function testCaptureFlow() {
   assert("捕获通知含脱敏形态（***）", notification2._posts[0] && notification2._posts[0].content.includes("***"), notification2._posts[0] && notification2._posts[0].content);
 }
 
+async function testCaptureResponsePreferred() {
+  console.log("\n== 流程：响应体凭证优先（URL 旧值不占位新值） ==");
+  // 场景：refresh 请求 URL 带旧 refreshToken，响应体下发新 refreshToken —— 必须保存新值
+  const store = createMockStore();
+  const notification = createMockNotification();
+  const { client } = createMockHttpClient([]);
+  const request = {
+    url: "https://app-services.lynkco.com.cn/auth/login/refresh?refreshToken=rt-old-value&deviceId=dev-9",
+    headers: { token: "bearer-old-token" },
+    body: "",
+  };
+  const response = {
+    url: "https://app-services.lynkco.com.cn/auth/login/refresh",
+    headers: {},
+    body: JSON.stringify({
+      code: "success",
+      data: { centerTokenDto: { token: "bearer-new-token", refreshToken: "rt-new-value" } },
+    }),
+  };
+  runBundleOnce({ request, response, store, notification, httpClient: client });
+
+  const stored = JSON.parse(store._data["lynkco.share.tokenState"]);
+  assert("响应体新 refreshToken 覆盖 URL 旧值", stored.refreshToken === "rt-new-value", JSON.stringify(stored));
+  assert("响应体新 token 覆盖请求头旧值", stored.token === "bearer-new-token", JSON.stringify(stored));
+  assert("deviceId 仍从请求侧捕获", stored.deviceId === "dev-9", JSON.stringify(stored));
+}
+
 async function testStoreReadFallback() {
   console.log("\n== 兜底：$persistentStore.read 抛错不崩溃、$done 必达 ==");
   const brokenStore = {
@@ -890,6 +917,7 @@ async function main() {
   await testFullFlow(TEST_CONFIG_OBJECT, "完整签到+分享（对象参数 / argument=[{...}] 形态）");
   await testShareValidationFlow();
   await testCaptureFlow();
+  await testCaptureResponsePreferred();
   await testStoreReadFallback();
   await testCooldown();
   await testCompletedNotLocked();

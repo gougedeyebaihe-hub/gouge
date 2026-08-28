@@ -34,6 +34,11 @@ function normalizeFieldKey(key) {
   return String(key || "").toLowerCase();
 }
 
+/* 凭证类字段：以服务器下发（响应体）为准——客户端发送值（URL query/请求体）可能是旧值，
+ * 如 refresh 请求 URL 带即将过期的 refreshToken，先到先得会导致响应体中的新值被旧值占位
+ * （表现为"重新登录后仍报凭证失效"）。 */
+const CREDENTIAL_FIELDS = ["refreshToken", "token", "oauthAccessToken", "oauthRefreshToken", "authorization"];
+
 function normalizeHeaderName(name) {
   return String(name || "").toLowerCase().replace(/[-_]/g, "");
 }
@@ -52,23 +57,24 @@ function getHeader(headers, names) {
   return "";
 }
 
-function setCapturedField(result, key, value) {
+function setCapturedField(result, key, value, preferCredentials) {
   const canonical = CAPTURE_FIELD_ALIASES[normalizeFieldKey(key)];
-  if (canonical && value != null && String(value) && !result[canonical]) {
+  if (!canonical || value == null || !String(value)) return;
+  if (!result[canonical] || (preferCredentials && CREDENTIAL_FIELDS.includes(canonical))) {
     result[canonical] = String(value);
   }
 }
 
-function collectFromObject(value, result) {
+function collectFromObject(value, result, preferCredentials) {
   if (!value || typeof value !== "object") return;
   Object.keys(value).forEach((key) => {
-    setCapturedField(result, key, value[key]);
+    setCapturedField(result, key, value[key], preferCredentials);
     const nested = value[key];
-    if (nested && typeof nested === "object") collectFromObject(nested, result);
+    if (nested && typeof nested === "object") collectFromObject(nested, result, preferCredentials);
   });
 }
 
-function collectFromBody(body, result) {
+function collectFromBody(body, result, preferCredentials) {
   if (body == null) return;
   if (typeof body === "string") {
     if (!body) return;
@@ -79,14 +85,14 @@ function collectFromBody(body, result) {
       parsed = null;
     }
     if (parsed && typeof parsed === "object") {
-      collectFromObject(parsed, result);
+      collectFromObject(parsed, result, preferCredentials);
     } else {
       const query = parseQueryString(body);
-      Object.keys(query).forEach((key) => setCapturedField(result, key, query[key]));
+      Object.keys(query).forEach((key) => setCapturedField(result, key, query[key], preferCredentials));
     }
     return;
   }
-  collectFromObject(body, result);
+  collectFromObject(body, result, preferCredentials);
 }
 
 function collectFromUrl(url, result) {
@@ -97,7 +103,7 @@ function collectFromUrl(url, result) {
   Object.keys(query).forEach((key) => setCapturedField(result, key, query[key]));
 }
 
-/** 从请求/响应中提取认证字段 */
+/** 从请求/响应中提取认证字段。URL/请求体先收集（占位），响应体凭证字段强制覆盖（服务器下发为准） */
 function extractCaptureFields(request, response) {
   const requestObject = request || {};
   const responseObject = response || {};
@@ -105,7 +111,7 @@ function extractCaptureFields(request, response) {
 
   collectFromUrl(requestObject.url || responseObject.url || "", result);
   collectFromBody(requestObject.body, result);
-  collectFromBody(responseObject.body, result);
+  collectFromBody(responseObject.body, result, true);
 
   const headers = requestObject.headers || responseObject.headers || {};
   const headerPairs = [
