@@ -105,7 +105,10 @@ application/json
 1. 更新后脚本报 403（诊断 `signErr=`/`shareErr=` 含 HTTP 403）。
 2. 确认发生轮换：抓包 App 的签到请求，看 `X-Ca-Key`（或小写 `x-ca-key`）字段是否变化；**注意多密钥并存可能——key 变了不代表旧对全失效，先用现有值直接复测**。
 3. 提取新密钥对（按优先级）：
-   - **首选（已实证，无需 root）**：Loon MitM 抓取 H5 前端 vendor JS（`h5.lynkco.com` 页面资源 `vendor.<hash>.js`），搜索 X-Ca 签名实现中作为 HMAC 密钥字符串明文使用的密钥对（`204644386` 对即以此法提取，2026-08 现场确认）。
+   - **首选（已实证，无需 root）——抓 H5 前端 JS**，具体步骤：
+     1. 用 Loon（或其他抓包工具）访问 `https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html`（插件分享链接同款页面），从页面 HTML 的 `<script src>` 里找到 `vendor.<hash>.js`（当前为 `vendor.c0eb609d.js`，约 3.9MB）；
+     2. 下载该 JS，搜索 `X-Ca-Signature` 附近或 `HmacSHA256`/`indexOf` 上下文，密钥对作为 HMAC 密钥字符串明文直接出现（2026-08 现场：`a()(w,"QCl7udM3...")`）；
+     3. 若 `vendor` 文件不含 key，再搜同页其他 bundle（`index.<hash>.bundle.js` 等）。
    - 兜底：参考 shovelshit/LynkCoHelper 的 `AppSecret_逆向分析记录.md`（userdebug/root 设备 + `am start -D` + jdb 在 `com.safe.cons.LynkCoConstants$g.<clinit>` 断点提取）。
    - 备选：等待公开仓库（GitHub 搜 `lynkco`）更新。
 4. 把新值写入 `src/config.js` 的 `LYNK_CO_APP_SECRETS` 表，`node build.js` 重新构建；也可用插件 UI 的 `xCaKey`/`appSecret` 参数临时覆盖（无需重装插件）。
