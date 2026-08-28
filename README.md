@@ -4,9 +4,18 @@
 
 ## 安装
 
-1. 导入 `LynkCo.plugin`（Loon 需开启 MITM 并信任证书）
-2. 打开领克 App 随便翻几个页面 → 自动捕获并保存 token（无需手动操作）
-3. 每天 00:01 自动执行，03:01 失败兜底（今日已完成则跳过）
+1. 推荐**从固定 URL 导入**（URL 永远不变，内容始终为最新版；以后在 Loon 插件详情页点「更新」即可升级，无需删除重导，令牌不丢）：
+
+   ```
+   https://cdn.jsdelivr.net/gh/gougedeyebaihe-hub/gouge@main/LynkCo.plugin
+   ```
+
+   （raw 直连备用：`https://raw.githubusercontent.com/gougedeyebaihe-hub/gouge/main/LynkCo.plugin`）
+2. Loon 需开启 MITM 并信任证书
+3. 打开领克 App 随便翻几个页面 → 自动捕获并保存 token（无需手动操作，也**无需重新登录**）
+4. 每天 00:01 自动执行，03:01 失败兜底（今日已完成则跳过）
+
+> 更新提示：发布后 jsDelivr/raw 缓存约数分钟刷新，若更新后详情页版本号未变，等 5-10 分钟再更新一次。
 
 ## 参数
 
