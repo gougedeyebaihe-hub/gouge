@@ -103,7 +103,7 @@ application/json
 ## 5. 密钥轮换应对（App 大版本更新时）
 
 1. 更新后脚本报 403（诊断 `signErr=`/`shareErr=` 含 HTTP 403）。
-2. 确认发生轮换：抓包 App 的签到请求，看 `X-Ca-Key`（或小写 `x-ca-key`）字段是否变化；**注意多密钥并存可能——key 变了不代表旧对全失效，先用现有值直接复测**。
+2. 确认发生轮换：抓包 App 的签到请求，看 `X-Ca-Key`（或小写 `x-ca-key`）字段是否变化；**注意多密钥并存可能——key 变了不代表旧对全失效，先用现有值直接复测**（可用 `node test/live-check.js <refreshToken>` 只读验证）。
 3. 提取新密钥对（按优先级）：
    - **首选（已实证，无需 root）——抓 H5 前端 JS**，具体步骤：
      1. 用 Loon（或其他抓包工具）访问 `https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html`（插件分享链接同款页面），从页面 HTML 的 `<script src>` 里找到 `vendor.<hash>.js`（当前为 `vendor.c0eb609d.js`，约 3.9MB）；
@@ -111,7 +111,7 @@ application/json
      3. 若 `vendor` 文件不含 key，再搜同页其他 bundle（`index.<hash>.bundle.js` 等）。
    - 兜底：参考 shovelshit/LynkCoHelper 的 `AppSecret_逆向分析记录.md`（userdebug/root 设备 + `am start -D` + jdb 在 `com.safe.cons.LynkCoConstants$g.<clinit>` 断点提取）。
    - 备选：等待公开仓库（GitHub 搜 `lynkco`）更新。
-4. 把新值写入 `src/config.js` 的 `LYNK_CO_APP_SECRETS` 表，`node build.js` 重新构建；也可用插件 UI 的 `xCaKey`/`appSecret` 参数临时覆盖（无需重装插件）。
+4. 把新值写入 `src/config.js` 的 `LYNK_CO_APP_SECRETS` 表，`node build.js` 重新构建（主路径）；也可用插件 UI 的 `xCaKey`/`appSecret` 参数临时覆盖（无需重装插件；控件解析待真机验证，UI 覆盖为主路径的临时手段而非依赖项）。
 
 ## 6. 参考仓库
 
