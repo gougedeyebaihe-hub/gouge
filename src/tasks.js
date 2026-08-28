@@ -395,7 +395,7 @@ async function runDailyTasks(context) {
   if (refreshInvalid) {
     const refreshMessage = report.refreshError ? report.refreshError.message : "刷新令牌无效。";
     return {
-      summary: "登录凭证已失效，请打开领克 App 操作一次以自动重新捕获。",
+      summary: "登录凭证已失效，请打开领克 App 重新登录以自动捕获。",
       diagnostic: redactSensitive("refresh=" + truncate(refreshMessage, 160), context.tokenState),
       report,
     };

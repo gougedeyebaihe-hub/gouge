@@ -225,10 +225,10 @@ function handleCron(input, mode) {
   if (!hasTokenState(tokenState)) {
     if (daily.date !== today) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
-      postNotification(notification, "领克签到", "未保存令牌，请打开领克 App 操作一次以自动捕获。", "");
+      postNotification(notification, "领克签到", "未保存令牌，请打开领克 App 完成登录以自动捕获。", "");
     }
     return Promise.resolve({
-      summary: "未保存令牌，请打开领克 App 操作一次以自动捕获。",
+      summary: "未保存令牌，请打开领克 App 完成登录以自动捕获。",
       diagnostic: "",
     });
   }

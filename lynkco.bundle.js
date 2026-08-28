@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260828-refactor22
+ * v20260828-refactor23
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -1714,7 +1714,7 @@ async function runDailyTasks(context) {
   if (refreshInvalid) {
     const refreshMessage = report.refreshError ? report.refreshError.message : "刷新令牌无效。";
     return {
-      summary: "登录凭证已失效，请打开领克 App 操作一次以自动重新捕获。",
+      summary: "登录凭证已失效，请打开领克 App 重新登录以自动捕获。",
       diagnostic: redactSensitive("refresh=" + truncate(refreshMessage, 160), context.tokenState),
       report,
     };
@@ -1973,10 +1973,10 @@ function handleCron(input, mode) {
   if (!hasTokenState(tokenState)) {
     if (daily.date !== today) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
-      postNotification(notification, "领克签到", "未保存令牌，请打开领克 App 操作一次以自动捕获。", "");
+      postNotification(notification, "领克签到", "未保存令牌，请打开领克 App 完成登录以自动捕获。", "");
     }
     return Promise.resolve({
-      summary: "未保存令牌，请打开领克 App 操作一次以自动捕获。",
+      summary: "未保存令牌，请打开领克 App 完成登录以自动捕获。",
       diagnostic: "",
     });
   }
