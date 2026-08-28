@@ -79,7 +79,6 @@ application/json
 | --- | --- | --- | --- |
 | `/up/api/v1/user/sign/day/info` | GET | H5 | 今日签到状态（`signStatus`） |
 | `/up/api/v1/user/sign/upgrade` | POST | 原生 SDK | 执行签到，body `"{}"`，`use_security:true`；旧路径 `/up/api/v1/user/sign` 已下线（400） |
-| `/up/api/v1/userReward/getContinueDaysAndSignCard` | GET | H5 | 连续天数/补签卡 |
 
 ### 分享
 | 接口 | 方法 | 签名 | 说明 |
@@ -116,4 +115,4 @@ application/json
 - `shovelshit/LynkCoHelper` — 最完整协议实现（双签名、登录、分享、逆向文档）
 - `xbgo/lynkco-daily` — 日常编排（青龙版），issues 记录 API 变化时间线
 - `JackyCZJ/lynkco-checkin`、`mrlj147/lynkco-auto-checkin`、`yujiejobs/lynk_sign_docker` — 其他实现
-- `rulaizhi/LynkCoHelper` — 含 2026-07 新密钥的 config.json
+- `rulaizhi/LynkCoHelper` — config.json（base64 存储）含长期公开密钥对，与当前脚本 `203760416` 对同值（2021 年提交，非"2026-07 新密钥"）
