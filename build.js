@@ -20,8 +20,8 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const OUT_DIR = ROOT;
 
-const BUNDLE_VERSION = "v20260818-refactor16";
-const PLUGIN_DATE = "2026-08-18";
+const BUNDLE_VERSION = "v20260828-refactor17";
+const PLUGIN_DATE = "2026-08-28";
 
 /* 模块拼接顺序（依赖在前；main.js 为入口分发，仅 bundle 需要） */
 const MODULES = CORE_MODULES.concat(["main.js"]);
@@ -129,7 +129,7 @@ function buildPlugin() {
 
   return (
     "#!name = Lynk & Co Auto Sign\n" +
-    "#!desc = 每日自动签到 + 文章分享（纯定时式，捕获一次 token 后无需再打开 App）| " + BUNDLE_VERSION + "\n" +
+    "#!desc = 每日自动签到 + 文章分享（纯定时式，捕获一次 token 后无需再打开 App）| " + BUNDLE_VERSION + "（" + PLUGIN_DATE + " 更新）\n" +
     "#!author = LynkCo Refactor\n" +
     "#!homepage = https://github.com/gougedeyebaihe-hub/gouge\n" +
     "#!date = " + PLUGIN_DATE + "\n" +
