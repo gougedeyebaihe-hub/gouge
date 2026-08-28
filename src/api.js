@@ -93,9 +93,9 @@ function isSuccessMarker(value) {
 
 function getBusinessFailureMessage(payload) {
   if (!payload || typeof payload !== "object") return "";
-  if (payload.success === false) return getApiMessage(payload) || "business check failed";
-  if (!isSuccessMarker(payload.code)) return getApiMessage(payload) || "code " + payload.code;
-  if (!isSuccessMarker(payload.status)) return getApiMessage(payload) || "status " + payload.status;
+  if (payload.success === false) return getApiMessage(payload) || "业务校验失败";
+  if (!isSuccessMarker(payload.code)) return getApiMessage(payload) || "业务码 " + payload.code;
+  if (!isSuccessMarker(payload.status)) return getApiMessage(payload) || "状态 " + payload.status;
   return "";
 }
 
@@ -105,12 +105,12 @@ function assertSuccessfulHttp(response, label, payload, data) {
     const apiMessage = getApiMessage(payload);
     const bodySummary = summarizeBody(data);
     throw new Error(
-      label + " failed HTTP " + status +
+      label + " 失败 HTTP " + status +
       (apiMessage ? ": " + apiMessage : bodySummary ? ": " + bodySummary : "."),
     );
   }
   const businessFailureMessage = getBusinessFailureMessage(payload);
-  if (businessFailureMessage) throw new Error(label + " failed: " + businessFailureMessage);
+  if (businessFailureMessage) throw new Error(label + " 失败：" + businessFailureMessage);
 }
 
 /** 截断长文本（用于错误信息/诊断摘要） */
@@ -399,7 +399,7 @@ async function refreshToken(context, refreshTokenValue) {
     }
   }
 
-  const error = new Error("Refresh token failed: " + lastErrors.slice(0, 3).join(" || "));
+  const error = new Error("刷新令牌失败：" + lastErrors.slice(0, 3).join(" || "));
   error.refreshFailed = true;
   error.invalidCredential = invalidCredentialSeen ? true : false;
   throw error;
@@ -413,7 +413,7 @@ async function getSignDayInfo(context) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/up/api/v1/user/sign/day/info",
-    label: "Sign day info",
+    label: "查询签到状态",
   });
 }
 
@@ -424,7 +424,7 @@ async function postSignUpgrade(context) {
     host: BUSINESS_HOST,
     uri: "/up/api/v1/user/sign/upgrade",
     body: "{}",
-    label: "Sign upgrade",
+    label: "执行签到",
     extraHeaders: { use_security: "true" },
   });
 }
@@ -435,7 +435,7 @@ async function getMyEnergy(context) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/app/energy/myEnergy",
-    label: "My energy",
+    label: "查询积分",
   });
 }
 
@@ -451,7 +451,7 @@ async function fetchSecurityCertifyId(context) {
         method: "GET",
         host,
         uri: "/auth/v1/security/config?type=GEE_TEST_V4",
-        label: "Security config",
+        label: "安全配置",
         extraHeaders: {
           tenantId: context.config.tenantId,
           Authentication: "AppId=" + context.config.cepAppId,
@@ -466,7 +466,7 @@ async function fetchSecurityCertifyId(context) {
       lastErrors.push(host + ": " + error.message);
     }
   }
-  const error = new Error("Security config failed: " + lastErrors.slice(0, 3).join(" || "));
+  const error = new Error("安全配置获取失败：" + lastErrors.slice(0, 3).join(" || "));
   error.securityFailed = true;
   throw error;
 }
@@ -499,12 +499,12 @@ async function getShareCode(context, options) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/app/v1/task/getShareCode",
-    label: "Share code",
+    label: "获取分享码",
     extraHeaders,
   });
   const payload = result.payload;
-  if (!payload || typeof payload !== "object") throw new Error("Share code response is not valid JSON.");
-  if (!payload.data) throw new Error(payload.message || "Share code response does not include data.");
+  if (!payload || typeof payload !== "object") throw new Error("获取分享码响应不是有效 JSON。");
+  if (!payload.data) throw new Error(payload.message || "获取分享码响应缺少数据。");
   return payload.data;
 }
 
@@ -514,7 +514,7 @@ async function postShareReporting(context, shareCode) {
     method: "POST",
     host: SHARE_HOST,
     uri: "/app/v1/task/shareReporting?shareCode=" + encodeURIComponent(shareCode),
-    label: "Share reporting",
+    label: "分享上报",
     body: JSON.stringify({
       businessNo: context.config.articleId,
       eventData: {
@@ -549,13 +549,13 @@ async function getFirstArticle(context) {
       refreshType: "MORE",
       pageNo: 1,
     }),
-    label: "Square articles",
+    label: "文章列表",
   });
   const data = result.payload && result.payload.data;
-  if (!data || typeof data !== "object") throw new Error("Square response is not valid.");
+  if (!data || typeof data !== "object") throw new Error("文章列表响应无效。");
   const dynamics = data.userByteDynamicsResponseDTOS;
   if (!Array.isArray(dynamics) || dynamics.length === 0) {
-    throw new Error("Square article list is empty.");
+    throw new Error("文章列表为空。");
   }
   for (let i = 0; i < dynamics.length; i += 1) {
     const item = dynamics[i];
@@ -564,5 +564,5 @@ async function getFirstArticle(context) {
     if (!articleId) continue;
     return String(articleId);
   }
-  throw new Error("Square article list does not include a usable article id.");
+  throw new Error("文章列表中没有可用文章 ID。");
 }

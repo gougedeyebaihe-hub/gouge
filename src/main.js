@@ -174,7 +174,7 @@ function handleCapture(input) {
       authorization: merged.authorization ? maskValue(merged.authorization) : "",
       changed: fingerprintChanged,
     });
-    postNotification(notification, "LynkCo Token Captured", body, "");
+    postNotification(notification, "领克令牌已捕获", body, "");
   }
   return { captured: true, tokenState: merged };
 }
@@ -195,19 +195,19 @@ function handleCron(input, mode) {
   const withinCooldown = daily.lastStartedAt && now.getTime() - daily.lastStartedAt < cooldownMs;
   if (withinCooldown) {
     if (isManual) {
-      postNotification(notification, "LynkCo Daily", "A task is already running or just finished. Try again in a few minutes.", "");
+      postNotification(notification, "领克签到", "任务正在执行或刚完成，请几分钟后再试。", "");
       return Promise.resolve({
-        summary: "A task is already running or just finished. Try again in a few minutes.",
+        summary: "任务正在执行或刚完成，请几分钟后再试。",
         diagnostic: "",
       });
     }
-    return Promise.resolve({ summary: "already running", diagnostic: "" });
+    return Promise.resolve({ summary: "任务执行中，已跳过本次触发", diagnostic: "" });
   }
 
   if (config.oncePerDay && !isManual) {
     if (daily.date === today && daily.success) {
       // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
-      return Promise.resolve({ summary: "already done today", diagnostic: "" });
+      return Promise.resolve({ summary: "今日已完成", diagnostic: "" });
     }
   }
 
@@ -222,10 +222,10 @@ function handleCron(input, mode) {
   if (!hasTokenState(tokenState)) {
     if (daily.date !== today) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
-      postNotification(notification, "LynkCo Daily", "No token saved.", "Open Lynk & Co once to capture token.");
+      postNotification(notification, "领克签到", "未保存令牌，请打开领克 App 操作一次以自动捕获。", "");
     }
     return Promise.resolve({
-      summary: "No token saved. Open Lynk & Co once to capture token.",
+      summary: "未保存令牌，请打开领克 App 操作一次以自动捕获。",
       diagnostic: "",
     });
   }
@@ -246,17 +246,17 @@ function handleCron(input, mode) {
     .then(({ summary, diagnostic }) => {
       writeDailyState(store, {
         date: today,
-        success: summary.includes("Sign: ok") && (!config.shareEnabled || summary.includes("Share: ok")),
+        success: summary.includes("签到：成功") && (!config.shareEnabled || summary.includes("分享：成功")),
         attempt: summary,
         lastStartedAt: startedAt,
       });
-      postNotification(notification, "LynkCo Daily", summary, diagnostic);
+      postNotification(notification, "领克签到", summary, diagnostic);
       return { summary, diagnostic };
     })
     .catch((error) => {
       writeDailyState(store, { date: today, success: false, attempt: "exception", lastStartedAt: startedAt });
-      postNotification(notification, "LynkCo Daily", "Daily run failed: " + error.message, "");
-      return { summary: "Daily run failed: " + error.message, diagnostic: "" };
+      postNotification(notification, "领克签到", "每日任务失败：" + error.message, "");
+      return { summary: "每日任务失败：" + error.message, diagnostic: "" };
     });
 }
 
@@ -298,7 +298,7 @@ function runMain() {
           // generic 仍需调用 $done 结束脚本
           const summary = (value && value.summary) || "";
           const diagnostic = (value && value.diagnostic) || "";
-          console.log("[LynkCo-manual] " + summary + (diagnostic ? "\n" + diagnostic : ""));
+          console.log("[领克-手动] " + summary + (diagnostic ? "\n" + diagnostic : ""));
           done({});
         } else {
           done({});

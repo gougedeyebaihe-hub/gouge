@@ -159,9 +159,9 @@ async function runSignTask(context, report) {
     if (confirmed) {
       report.signMessage = (payload && (payload.message || payload.msg)) || "";
     } else {
-      report.signError = new Error("Sign upgrade returned success but day info still reports unsigned.");
-      report.sign = { ok: false, message: "sign not confirmed" };
-      return { ok: false, message: "sign not confirmed" };
+      report.signError = new Error("签到接口返回成功，但复查仍显示未签到。");
+      report.sign = { ok: false, message: "签到未确认" };
+      return { ok: false, message: "签到未确认" };
     }
     return { ok: true };
   } catch (error) {
@@ -207,7 +207,7 @@ async function obtainShareCode(context) {
     const validation = await fetchSecurityCertifyId(context);
     if (!validation) {
       throw new Error(
-        "Share code failed: share.need.validate.check. Open Lynk & Co and share once manually, then retry.",
+        "获取分享码失败：需要人机验证。请打开领克 App 手动分享一次后重试。",
       );
     }
     writeStoredShareValidation(context.store, validation);
@@ -218,7 +218,7 @@ async function obtainShareCode(context) {
         throw validationError;
       }
       throw new Error(
-        "Share code failed: share.need.validate.check. Open Lynk & Co and share once manually, then retry.",
+        "获取分享码失败：需要人机验证。请打开领克 App 手动分享一次后重试。",
       );
     }
   }
@@ -316,23 +316,23 @@ async function runShareTask(context, report) {
 /* ---------------- 汇总 ---------------- */
 
 function summarizeTask(name, result) {
-  if (!result) return name + ": skipped";
+  if (!result) return name + "：跳过";
   if (result.ok) {
-    if (result.already) return name + ": ok (already)";
+    if (result.already) return name + "：成功（今日已完成）";
     if (result.points != null) {
       // 分享：两步法（getShareCode + shareReporting）即触发加分，加分为异步落账；
       // points>0 表示复查时已确认到账，否则保持中性提示（跨日确认在次日通知中报告）
-      return name + ": ok" + (result.points > 0 ? " (+" + result.points + " 已到账)" : "");
+      return name + "：成功" + (result.points > 0 ? "（+" + result.points + " 已到账）" : "");
     }
-    return name + ": ok";
+    return name + "：成功";
   }
-  return name + ": failed (" + truncate(result.message, 160) + ")";
+  return name + "：失败（" + truncate(result.message, 160) + "）";
 }
 
 function buildSummary(report, config) {
-  const parts = [summarizeTask("Sign", report.sign)];
+  const parts = [summarizeTask("签到", report.sign)];
   if (config.shareEnabled) {
-    parts.push(summarizeTask("Share", report.share));
+    parts.push(summarizeTask("分享", report.share));
   }
   return parts.join(" | ");
 }
@@ -393,9 +393,9 @@ async function runDailyTasks(context) {
   }
 
   if (refreshInvalid) {
-    const refreshMessage = report.refreshError ? report.refreshError.message : "Refresh token invalid.";
+    const refreshMessage = report.refreshError ? report.refreshError.message : "刷新令牌无效。";
     return {
-      summary: "Token expired. Open Lynk & Co once to re-capture.",
+      summary: "登录凭证已失效，请打开领克 App 操作一次以自动重新捕获。",
       diagnostic: redactSensitive("refresh=" + truncate(refreshMessage, 160), context.tokenState),
       report,
     };

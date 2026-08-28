@@ -357,7 +357,7 @@ async function testNoTokenFlow() {
 
   assert("无 token 时发送提示通知", notification._posts.length >= 1);
   const post = notification._posts[0];
-  assert("通知提示打开 App", post && post.content.includes("Open Lynk & Co once"), post && post.content);
+  assert("通知提示打开 App", post && post.content.includes("打开领克 App"), post && post.content);
 }
 
 async function testFullFlow(argument, label) {
@@ -377,7 +377,7 @@ async function testFullFlow(argument, label) {
   assert("任务完成前不调用 $done（异步不被中断）", sandbox.__doneCalled === true);
   assert(
     "签到+分享成功",
-    post && post.content.includes("Sign: ok") && post.content.includes("Share: ok"),
+    post && post.content.includes("签到：成功") && post.content.includes("分享：成功"),
     post && post.content,
   );
   assert("分享加分 +5", post && post.content.includes("+5 已到账"), post && post.content);
@@ -444,7 +444,7 @@ async function testShareValidationFlow() {
 
   const post = notification._posts[0];
   assert("收到结果通知", Boolean(post), JSON.stringify(notification._posts));
-  assert("验证码兜底成功", post && post.content.includes("Share: ok"), post && post.content);
+  assert("验证码兜底成功", post && post.content.includes("分享：成功"), post && post.content);
   assert(
     "certifyId 用于 getShareCode",
     client.calls.some((c) => c.url.includes("getShareCode") && c.headers.certifyId === "cert-42"),
@@ -530,7 +530,7 @@ async function testCooldown() {
 
   assert("A 正常执行（有请求）", client.calls.length > 0, "calls=" + client.calls.length);
   assert("冷却期内的手动触发被拦截（无请求）", callsB.length === 0, "calls=" + callsB.length);
-  assert("拦截提示为执行中/刚完成（输出到日志）", logsB.join("\n").includes("already running"), logsB.join("\n").slice(0, 200));
+  assert("拦截提示为执行中/刚完成（输出到日志）", logsB.join("\n").includes("任务正在执行或刚完成"), logsB.join("\n").slice(0, 200));
 }
 
 async function testBackupRefresh() {
@@ -575,7 +575,7 @@ async function testBackupRefresh() {
 
   const stored = JSON.parse(store._data["lynkco.share.tokenState"]);
   assert("backup 成功后被提升为新主并清空", stored.refreshToken === "rt-new" && stored.backupRefreshToken === "", JSON.stringify(stored));
-  assert("任务正常完成", notification._posts[0] && notification._posts[0].content.includes("Sign: ok"), notification._posts[0] && notification._posts[0].content);
+  assert("任务正常完成", notification._posts[0] && notification._posts[0].content.includes("签到：成功"), notification._posts[0] && notification._posts[0].content);
 }
 
 function testTimezone() {
@@ -682,8 +682,8 @@ async function testManualTrigger() {
   const manualLog = logs.join("\n");
   assert("手动触发绕过 oncePerDay 仍执行", client.calls.length > 0, "calls=" + client.calls.length);
   assert("$done 以普通收尾调用（不再弹窗）", sandbox.__doneCalled === true && sandbox.__doneArgs && typeof sandbox.__doneArgs === "object" && !sandbox.__doneArgs.title, JSON.stringify(sandbox.__doneArgs));
-  assert("结果输出到日志（[LynkCo-manual] 前缀）", manualLog.includes("[LynkCo-manual]"), manualLog.slice(0, 200));
-  assert("日志包含执行结果", manualLog.includes("Sign: ok"), manualLog.slice(0, 200));
+  assert("结果输出到日志（[领克-手动] 前缀）", manualLog.includes("[领克-手动]"), manualLog.slice(0, 200));
+  assert("日志包含执行结果", manualLog.includes("签到：成功"), manualLog.slice(0, 200));
   assert("日志不含分享链接", !manualLog.includes("link="), manualLog.slice(0, 200));
   assert("手动触发也发送通知", notification._posts.length >= 1);
   assert("通知不含分享链接", notification._posts[0] && !notification._posts[0].content.includes("link="), notification._posts[0] && notification._posts[0].content);
@@ -790,8 +790,8 @@ async function testSignFailureShowsFailed() {
   await waitFor(() => notification._posts.length > 0, 3000);
 
   const post = notification._posts[0];
-  assert("签到失败显示 Sign: failed", post && post.content.includes("Sign: failed"), post && post.content);
-  assert("不再显示 Sign: skipped", post && !post.content.includes("Sign: skipped"), post && post.content);
+  assert("签到失败显示 签到：失败", post && post.content.includes("签到：失败"), post && post.content);
+  assert("不再显示 签到：跳过", post && !post.content.includes("签到：跳过"), post && post.content);
   assert("诊断含 signErr", post && post.content.includes("signErr="), post && post.content);
 }
 
@@ -824,10 +824,10 @@ async function testRefreshInvalidShortCircuit() {
   await waitFor(() => notification._posts.length > 0, 3000);
 
   const post = notification._posts[0];
-  assert("失效时通知明确提示重新捕获", post && post.content.includes("Token expired. Open Lynk & Co once to re-capture."), post && post.content);
+  assert("失效时通知明确提示重新捕获", post && post.content.includes("登录凭证已失效"), post && post.content);
   assert("失效时不再执行签到（无 day/info 请求）", !client.calls.some((c) => c.url.includes("sign/day/info")), "calls=" + client.calls.length);
   assert("失效时不再执行分享", !client.calls.some((c) => c.url.includes("getShareCode")), "calls=" + client.calls.length);
-  assert("失效时无 Sign:/Share: 误导性状态", post && !post.content.includes("Sign:"), post && post.content);
+  assert("失效时无 签到：/分享： 误导性状态", post && !post.content.includes("签到："), post && post.content);
   assert("诊断保留 refresh 原因", post && post.content.includes("refresh="), post && post.content);
 }
 

@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260828-refactor20
+ * v20260828-refactor21
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -848,9 +848,9 @@ function isSuccessMarker(value) {
 
 function getBusinessFailureMessage(payload) {
   if (!payload || typeof payload !== "object") return "";
-  if (payload.success === false) return getApiMessage(payload) || "business check failed";
-  if (!isSuccessMarker(payload.code)) return getApiMessage(payload) || "code " + payload.code;
-  if (!isSuccessMarker(payload.status)) return getApiMessage(payload) || "status " + payload.status;
+  if (payload.success === false) return getApiMessage(payload) || "业务校验失败";
+  if (!isSuccessMarker(payload.code)) return getApiMessage(payload) || "业务码 " + payload.code;
+  if (!isSuccessMarker(payload.status)) return getApiMessage(payload) || "状态 " + payload.status;
   return "";
 }
 
@@ -860,12 +860,12 @@ function assertSuccessfulHttp(response, label, payload, data) {
     const apiMessage = getApiMessage(payload);
     const bodySummary = summarizeBody(data);
     throw new Error(
-      label + " failed HTTP " + status +
+      label + " 失败 HTTP " + status +
       (apiMessage ? ": " + apiMessage : bodySummary ? ": " + bodySummary : "."),
     );
   }
   const businessFailureMessage = getBusinessFailureMessage(payload);
-  if (businessFailureMessage) throw new Error(label + " failed: " + businessFailureMessage);
+  if (businessFailureMessage) throw new Error(label + " 失败：" + businessFailureMessage);
 }
 
 /** 截断长文本（用于错误信息/诊断摘要） */
@@ -1154,7 +1154,7 @@ async function refreshToken(context, refreshTokenValue) {
     }
   }
 
-  const error = new Error("Refresh token failed: " + lastErrors.slice(0, 3).join(" || "));
+  const error = new Error("刷新令牌失败：" + lastErrors.slice(0, 3).join(" || "));
   error.refreshFailed = true;
   error.invalidCredential = invalidCredentialSeen ? true : false;
   throw error;
@@ -1168,7 +1168,7 @@ async function getSignDayInfo(context) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/up/api/v1/user/sign/day/info",
-    label: "Sign day info",
+    label: "查询签到状态",
   });
 }
 
@@ -1179,7 +1179,7 @@ async function postSignUpgrade(context) {
     host: BUSINESS_HOST,
     uri: "/up/api/v1/user/sign/upgrade",
     body: "{}",
-    label: "Sign upgrade",
+    label: "执行签到",
     extraHeaders: { use_security: "true" },
   });
 }
@@ -1190,7 +1190,7 @@ async function getMyEnergy(context) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/app/energy/myEnergy",
-    label: "My energy",
+    label: "查询积分",
   });
 }
 
@@ -1206,7 +1206,7 @@ async function fetchSecurityCertifyId(context) {
         method: "GET",
         host,
         uri: "/auth/v1/security/config?type=GEE_TEST_V4",
-        label: "Security config",
+        label: "安全配置",
         extraHeaders: {
           tenantId: context.config.tenantId,
           Authentication: "AppId=" + context.config.cepAppId,
@@ -1221,7 +1221,7 @@ async function fetchSecurityCertifyId(context) {
       lastErrors.push(host + ": " + error.message);
     }
   }
-  const error = new Error("Security config failed: " + lastErrors.slice(0, 3).join(" || "));
+  const error = new Error("安全配置获取失败：" + lastErrors.slice(0, 3).join(" || "));
   error.securityFailed = true;
   throw error;
 }
@@ -1254,12 +1254,12 @@ async function getShareCode(context, options) {
     method: "GET",
     host: BUSINESS_HOST,
     uri: "/app/v1/task/getShareCode",
-    label: "Share code",
+    label: "获取分享码",
     extraHeaders,
   });
   const payload = result.payload;
-  if (!payload || typeof payload !== "object") throw new Error("Share code response is not valid JSON.");
-  if (!payload.data) throw new Error(payload.message || "Share code response does not include data.");
+  if (!payload || typeof payload !== "object") throw new Error("获取分享码响应不是有效 JSON。");
+  if (!payload.data) throw new Error(payload.message || "获取分享码响应缺少数据。");
   return payload.data;
 }
 
@@ -1269,7 +1269,7 @@ async function postShareReporting(context, shareCode) {
     method: "POST",
     host: SHARE_HOST,
     uri: "/app/v1/task/shareReporting?shareCode=" + encodeURIComponent(shareCode),
-    label: "Share reporting",
+    label: "分享上报",
     body: JSON.stringify({
       businessNo: context.config.articleId,
       eventData: {
@@ -1304,13 +1304,13 @@ async function getFirstArticle(context) {
       refreshType: "MORE",
       pageNo: 1,
     }),
-    label: "Square articles",
+    label: "文章列表",
   });
   const data = result.payload && result.payload.data;
-  if (!data || typeof data !== "object") throw new Error("Square response is not valid.");
+  if (!data || typeof data !== "object") throw new Error("文章列表响应无效。");
   const dynamics = data.userByteDynamicsResponseDTOS;
   if (!Array.isArray(dynamics) || dynamics.length === 0) {
-    throw new Error("Square article list is empty.");
+    throw new Error("文章列表为空。");
   }
   for (let i = 0; i < dynamics.length; i += 1) {
     const item = dynamics[i];
@@ -1319,7 +1319,7 @@ async function getFirstArticle(context) {
     if (!articleId) continue;
     return String(articleId);
   }
-  throw new Error("Square article list does not include a usable article id.");
+  throw new Error("文章列表中没有可用文章 ID。");
 }
 
 
@@ -1478,9 +1478,9 @@ async function runSignTask(context, report) {
     if (confirmed) {
       report.signMessage = (payload && (payload.message || payload.msg)) || "";
     } else {
-      report.signError = new Error("Sign upgrade returned success but day info still reports unsigned.");
-      report.sign = { ok: false, message: "sign not confirmed" };
-      return { ok: false, message: "sign not confirmed" };
+      report.signError = new Error("签到接口返回成功，但复查仍显示未签到。");
+      report.sign = { ok: false, message: "签到未确认" };
+      return { ok: false, message: "签到未确认" };
     }
     return { ok: true };
   } catch (error) {
@@ -1526,7 +1526,7 @@ async function obtainShareCode(context) {
     const validation = await fetchSecurityCertifyId(context);
     if (!validation) {
       throw new Error(
-        "Share code failed: share.need.validate.check. Open Lynk & Co and share once manually, then retry.",
+        "获取分享码失败：需要人机验证。请打开领克 App 手动分享一次后重试。",
       );
     }
     writeStoredShareValidation(context.store, validation);
@@ -1537,7 +1537,7 @@ async function obtainShareCode(context) {
         throw validationError;
       }
       throw new Error(
-        "Share code failed: share.need.validate.check. Open Lynk & Co and share once manually, then retry.",
+        "获取分享码失败：需要人机验证。请打开领克 App 手动分享一次后重试。",
       );
     }
   }
@@ -1635,23 +1635,23 @@ async function runShareTask(context, report) {
 /* ---------------- 汇总 ---------------- */
 
 function summarizeTask(name, result) {
-  if (!result) return name + ": skipped";
+  if (!result) return name + "：跳过";
   if (result.ok) {
-    if (result.already) return name + ": ok (already)";
+    if (result.already) return name + "：成功（今日已完成）";
     if (result.points != null) {
       // 分享：两步法（getShareCode + shareReporting）即触发加分，加分为异步落账；
       // points>0 表示复查时已确认到账，否则保持中性提示（跨日确认在次日通知中报告）
-      return name + ": ok" + (result.points > 0 ? " (+" + result.points + " 已到账)" : "");
+      return name + "：成功" + (result.points > 0 ? "（+" + result.points + " 已到账）" : "");
     }
-    return name + ": ok";
+    return name + "：成功";
   }
-  return name + ": failed (" + truncate(result.message, 160) + ")";
+  return name + "：失败（" + truncate(result.message, 160) + "）";
 }
 
 function buildSummary(report, config) {
-  const parts = [summarizeTask("Sign", report.sign)];
+  const parts = [summarizeTask("签到", report.sign)];
   if (config.shareEnabled) {
-    parts.push(summarizeTask("Share", report.share));
+    parts.push(summarizeTask("分享", report.share));
   }
   return parts.join(" | ");
 }
@@ -1712,9 +1712,9 @@ async function runDailyTasks(context) {
   }
 
   if (refreshInvalid) {
-    const refreshMessage = report.refreshError ? report.refreshError.message : "Refresh token invalid.";
+    const refreshMessage = report.refreshError ? report.refreshError.message : "刷新令牌无效。";
     return {
-      summary: "Token expired. Open Lynk & Co once to re-capture.",
+      summary: "登录凭证已失效，请打开领克 App 操作一次以自动重新捕获。",
       diagnostic: redactSensitive("refresh=" + truncate(refreshMessage, 160), context.tokenState),
       report,
     };
@@ -1922,7 +1922,7 @@ function handleCapture(input) {
       authorization: merged.authorization ? maskValue(merged.authorization) : "",
       changed: fingerprintChanged,
     });
-    postNotification(notification, "LynkCo Token Captured", body, "");
+    postNotification(notification, "领克令牌已捕获", body, "");
   }
   return { captured: true, tokenState: merged };
 }
@@ -1943,19 +1943,19 @@ function handleCron(input, mode) {
   const withinCooldown = daily.lastStartedAt && now.getTime() - daily.lastStartedAt < cooldownMs;
   if (withinCooldown) {
     if (isManual) {
-      postNotification(notification, "LynkCo Daily", "A task is already running or just finished. Try again in a few minutes.", "");
+      postNotification(notification, "领克签到", "任务正在执行或刚完成，请几分钟后再试。", "");
       return Promise.resolve({
-        summary: "A task is already running or just finished. Try again in a few minutes.",
+        summary: "任务正在执行或刚完成，请几分钟后再试。",
         diagnostic: "",
       });
     }
-    return Promise.resolve({ summary: "already running", diagnostic: "" });
+    return Promise.resolve({ summary: "任务执行中，已跳过本次触发", diagnostic: "" });
   }
 
   if (config.oncePerDay && !isManual) {
     if (daily.date === today && daily.success) {
       // 今日已完成，静默跳过（避免 03:01 兜底任务重复弹窗）
-      return Promise.resolve({ summary: "already done today", diagnostic: "" });
+      return Promise.resolve({ summary: "今日已完成", diagnostic: "" });
     }
   }
 
@@ -1970,10 +1970,10 @@ function handleCron(input, mode) {
   if (!hasTokenState(tokenState)) {
     if (daily.date !== today) {
       writeDailyState(store, { date: today, success: false, attempt: "no-token" });
-      postNotification(notification, "LynkCo Daily", "No token saved.", "Open Lynk & Co once to capture token.");
+      postNotification(notification, "领克签到", "未保存令牌，请打开领克 App 操作一次以自动捕获。", "");
     }
     return Promise.resolve({
-      summary: "No token saved. Open Lynk & Co once to capture token.",
+      summary: "未保存令牌，请打开领克 App 操作一次以自动捕获。",
       diagnostic: "",
     });
   }
@@ -1994,17 +1994,17 @@ function handleCron(input, mode) {
     .then(({ summary, diagnostic }) => {
       writeDailyState(store, {
         date: today,
-        success: summary.includes("Sign: ok") && (!config.shareEnabled || summary.includes("Share: ok")),
+        success: summary.includes("签到：成功") && (!config.shareEnabled || summary.includes("分享：成功")),
         attempt: summary,
         lastStartedAt: startedAt,
       });
-      postNotification(notification, "LynkCo Daily", summary, diagnostic);
+      postNotification(notification, "领克签到", summary, diagnostic);
       return { summary, diagnostic };
     })
     .catch((error) => {
       writeDailyState(store, { date: today, success: false, attempt: "exception", lastStartedAt: startedAt });
-      postNotification(notification, "LynkCo Daily", "Daily run failed: " + error.message, "");
-      return { summary: "Daily run failed: " + error.message, diagnostic: "" };
+      postNotification(notification, "领克签到", "每日任务失败：" + error.message, "");
+      return { summary: "每日任务失败：" + error.message, diagnostic: "" };
     });
 }
 
@@ -2046,7 +2046,7 @@ function runMain() {
           // generic 仍需调用 $done 结束脚本
           const summary = (value && value.summary) || "";
           const diagnostic = (value && value.diagnostic) || "";
-          console.log("[LynkCo-manual] " + summary + (diagnostic ? "\n" + diagnostic : ""));
+          console.log("[领克-手动] " + summary + (diagnostic ? "\n" + diagnostic : ""));
           done({});
         } else {
           done({});
