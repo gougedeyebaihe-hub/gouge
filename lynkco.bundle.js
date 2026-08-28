@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260828-refactor21
+ * v20260828-refactor22
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -1936,16 +1936,19 @@ function handleCron(input, mode) {
   // generic 手动触发：用户主动点按 = 强制执行，绕过 oncePerDay 静默跳过
   const isManual = mode === "manual";
 
-  // 执行冷却：并发触发（手动/捕获触发与 cron 重叠）在无 CAS 环境下无法跨实例互斥，
-  // 用 lastStartedAt 时间戳把 5 分钟内的重复触发收敛为单次执行；手动触发给出提示。
+  // 执行中互斥：只在任务链真正执行（attempt="running"）时拦截并发触发。
+  // 任务被 Loon 超时杀掉时 attempt 停在 "running"——150s 窗口（>cron timeout 120s）后
+  // 视为僵尸锁自动过期，允许重新执行；任务正常结束后（attempt=结果摘要）不拦截，
+  // 用户可立即再次手动触发。
   const daily = readDailyState(store);
-  const cooldownMs = 5 * 60 * 1000;
-  const withinCooldown = daily.lastStartedAt && now.getTime() - daily.lastStartedAt < cooldownMs;
-  if (withinCooldown) {
+  const runningLockMs = 150 * 1000;
+  const isExecuting = daily.attempt === "running" &&
+    daily.lastStartedAt && now.getTime() - daily.lastStartedAt < runningLockMs;
+  if (isExecuting) {
     if (isManual) {
-      postNotification(notification, "领克签到", "任务正在执行或刚完成，请几分钟后再试。", "");
+      postNotification(notification, "领克签到", "任务正在执行中，请稍候片刻再试。", "");
       return Promise.resolve({
-        summary: "任务正在执行或刚完成，请几分钟后再试。",
+        summary: "任务正在执行中，请稍候片刻再试。",
         diagnostic: "",
       });
     }
@@ -1980,6 +1983,7 @@ function handleCron(input, mode) {
 
   const startedAt = now.getTime();
   writeDailyState(store, { date: today, success: false, attempt: "running", lastStartedAt: startedAt });
+  console.log("[领克] 任务启动 " + today + " " + (isManual ? "（手动）" : "（定时）") + "，开始时间戳 " + startedAt);
 
   const context = {
     config,

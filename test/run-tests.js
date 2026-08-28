@@ -530,7 +530,7 @@ async function testCooldown() {
 
   assert("A 正常执行（有请求）", client.calls.length > 0, "calls=" + client.calls.length);
   assert("冷却期内的手动触发被拦截（无请求）", callsB.length === 0, "calls=" + callsB.length);
-  assert("拦截提示为执行中/刚完成（输出到日志）", logsB.join("\n").includes("任务正在执行或刚完成"), logsB.join("\n").slice(0, 200));
+  assert("拦截提示为执行中/刚完成（输出到日志）", logsB.join("\n").includes("任务正在执行中"), logsB.join("\n").slice(0, 200));
 }
 
 async function testBackupRefresh() {
@@ -831,6 +831,54 @@ async function testRefreshInvalidShortCircuit() {
   assert("诊断保留 refresh 原因", post && post.content.includes("refresh="), post && post.content);
 }
 
+async function testCompletedNotLocked() {
+  console.log("\n== 流程：任务刚完成/僵尸锁过期后允许再次执行 ==");
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const now = Date.now();
+
+  // 场景 1：任务 1 秒前刚完成（attempt=结果摘要）→ 手动触发应立即执行
+  const store1 = createMockStore();
+  const notification1 = createMockNotification();
+  store1.write(JSON.stringify({ refreshToken: "rt-a", token: "t-a" }), "lynkco.share.tokenState");
+  store1.write(
+    JSON.stringify({ date: today, success: true, attempt: "签到：成功 | 分享：成功", lastStartedAt: now - 1000 }),
+    "lynkco.share.dailyState",
+  );
+  const flow = createFullFlowRoutes();
+  const { client } = createMockHttpClient(flow.routes);
+  flow.setClient(client);
+  const sandbox = runBundleOnce({
+    argument: { oncePerDay: true, debug: true },
+    store: store1,
+    notification: notification1,
+    httpClient: client,
+    script: { name: "lynkco-manual" },
+  });
+  await waitFor(() => sandbox.__doneCalled, 3000);
+  assert("刚完成（非执行中）不拦截手动触发", client.calls.length > 0, "calls=" + client.calls.length);
+
+  // 场景 2：僵尸锁（attempt=running 但已超 150s 窗口）→ 允许重新执行
+  const store2 = createMockStore();
+  const notification2 = createMockNotification();
+  store2.write(JSON.stringify({ refreshToken: "rt-b", token: "t-b" }), "lynkco.share.tokenState");
+  store2.write(
+    JSON.stringify({ date: today, success: false, attempt: "running", lastStartedAt: now - 300000 }),
+    "lynkco.share.dailyState",
+  );
+  const flow2 = createFullFlowRoutes();
+  const { client: client2 } = createMockHttpClient(flow2.routes);
+  flow2.setClient(client2);
+  const sandbox2 = runBundleOnce({
+    argument: { oncePerDay: true, debug: true },
+    store: store2,
+    notification: notification2,
+    httpClient: client2,
+    script: { name: "lynkco-manual" },
+  });
+  await waitFor(() => sandbox2.__doneCalled, 3000);
+  assert("僵尸锁（超过 150s）自动过期允许执行", client2.calls.length > 0, "calls=" + client2.calls.length);
+}
+
 /* ================= 主入口 ================= */
 
 async function main() {
@@ -844,6 +892,7 @@ async function main() {
   await testCaptureFlow();
   await testStoreReadFallback();
   await testCooldown();
+  await testCompletedNotLocked();
   await testBackupRefresh();
   await testDiagnosticRedaction();
   await testSignFailureShowsFailed();
