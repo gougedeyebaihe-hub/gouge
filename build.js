@@ -21,16 +21,17 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const OUT_DIR = ROOT;
 
-const BUNDLE_VERSION = "v20260830-refactor16";
+const BUNDLE_VERSION = "v20260830-refactor17";
 const PLUGIN_DATE = "2026-08-30";
 
 /* 模块拼接顺序（依赖在前；main.js 为入口分发，仅 bundle 需要） */
 const MODULES = CORE_MODULES.concat(["main.js"]);
 
-/* 每日两行 cron 的时刻选项（select 值即 cron 表达式，首项为默认=现状行为）。
+/* 每日两行 cron 的时刻选项（select 值即 cron 表达式，首项为默认）。
+ * 2026-08-30 用户决定：默认改 00:10——避开午夜服务端日切/网络波动窗口（00:01 距日切仅 1 分钟）。
  * 签到/重试两行地位对称（先成功者赢，oncePerDay 抑制其余），选项配对建议相差约 3 小时。 */
-const CRON_TIME_OPTIONS = ["1 0 * * *", "30 0 * * *", "30 1 * * *", "30 7 * * *", "30 12 * * *"];
-const RETRY_CRON_OPTIONS = ["1 3 * * *", "30 3 * * *", "30 4 * * *", "30 10 * * *", "30 15 * * *"];
+const CRON_TIME_OPTIONS = ["10 0 * * *", "1 0 * * *", "30 0 * * *", "30 1 * * *", "30 7 * * *", "30 12 * * *"];
+const RETRY_CRON_OPTIONS = ["10 3 * * *", "1 3 * * *", "30 3 * * *", "30 4 * * *", "30 10 * * *", "30 15 * * *"];
 
 /* 插件参数（[Argument] 控件 + 脚本 argument 占位符的单一来源）。
  * type: input / select / switch；default：input 为默认字符串，select 为可选项（首项为默认），switch 为布尔。
@@ -49,8 +50,8 @@ const PARAMS = [
   { name: "oncePerDay", type: "switch", default: true, tag: "每日仅一次", desc: "当日成功后静默跳过" },
   { name: "debug", type: "switch", default: true, tag: "诊断信息", desc: "通知附带签名/响应摘要" },
   { name: "captureNotify", type: "switch", default: false, tag: "捕获通知", desc: "捕获 token 时发通知；重抓时临时开" },
-  { name: "cronTime", type: "select", default: CRON_TIME_OPTIONS, tag: "每日签到时刻", desc: "依次为 00:01/00:30/01:30/07:30/12:30；无效表达式该行不执行" },
-  { name: "retryCron", type: "select", default: RETRY_CRON_OPTIONS, tag: "失败重试时刻", desc: "依次为 03:01/03:30/04:30/10:30/15:30；建议比签到时刻晚约3小时" },
+  { name: "cronTime", type: "select", default: CRON_TIME_OPTIONS, tag: "每日签到时刻", desc: "依次为 00:10/00:01/00:30/01:30/07:30/12:30；无效表达式该行不执行" },
+  { name: "retryCron", type: "select", default: RETRY_CRON_OPTIONS, tag: "失败重试时刻", desc: "依次为 03:10/03:01/03:30/04:30/10:30/15:30；建议比签到时刻晚约3小时" },
 ];
 
 /* 捕获脚本匹配的真实主机（与 src/api.js 的 AUTH_HOSTS/BUSINESS_HOST/H5_API_HOST/SHARE_HOST 一致） */
@@ -208,7 +209,7 @@ function verifyPlugin(plugin) {
 
   // 6) cron 时刻参数：选项均为合法 5 段 cron，且默认项保持原行为（00:01 / 03:01）
   const cronOptionRegex = /^\d{1,2} \d{1,2} \* \* \*$/;
-  const cronDefaults = { cronTime: "1 0 * * *", retryCron: "1 3 * * *" };
+  const cronDefaults = { cronTime: "10 0 * * *", retryCron: "10 3 * * *" };
   Object.keys(cronDefaults).forEach((name) => {
     const param = PARAMS.find((item) => item.name === name);
     if (!param || param.type !== "select") {

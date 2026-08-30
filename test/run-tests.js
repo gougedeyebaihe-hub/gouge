@@ -595,12 +595,12 @@ function testPluginFormat() {
     scriptLines.filter((line) => line.startsWith("cron ")).every((line) => !/cron "\d/.test(line)),
   );
   assert(
-    "cronTime select 首项为 1 0 * * *",
-    argumentLines.some((line) => line.startsWith('cronTime = select,"1 0 * * *"')),
+    "cronTime select 首项为 10 0 * * *",
+    argumentLines.some((line) => line.startsWith('cronTime = select,"10 0 * * *"')),
   );
   assert(
-    "retryCron select 首项为 1 3 * * *",
-    argumentLines.some((line) => line.startsWith('retryCron = select,"1 3 * * *"')),
+    "retryCron select 首项为 10 3 * * *",
+    argumentLines.some((line) => line.startsWith('retryCron = select,"10 3 * * *"')),
   );
 
   // 6) [MITM] 主机齐全
