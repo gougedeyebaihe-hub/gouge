@@ -1,6 +1,6 @@
 /**
  * Lynk & Co Auto Sign & Share — Loon bundle
- * v20260818-refactor15
+ * v20260830-refactor15
  * 纯定时式：捕获一次 token 后，每天 cron 自动签到 + 文章分享；generic 可手动触发。
  * 包含两套网关签名（H5 大写 X-Ca-* / 原生 SDK 小写 x-ca-* + Content-MD5）。
  * 由 src/ 模块构建生成，请勿直接编辑本文件。
@@ -1498,6 +1498,7 @@ async function runShareTask(context, report) {
     } else {
       articleId = await getFirstArticle(context);
       taskConfig.articleId = articleId;
+      taskConfig.shareContentURL = buildShareUrl(articleId);
     }
     const shareContext = Object.assign({}, context, { config: taskConfig });
 
@@ -1749,15 +1750,6 @@ function extractCaptureFields(request, response) {
   return result;
 }
 
-function capturedFingerprint(fields) {
-  return [
-    fields.refreshToken || "",
-    fields.token || "",
-    fields.oauthAccessToken || "",
-    fields.authorization || "",
-  ].join("|");
-}
-
 /* ---------------- 捕获处理 ---------------- */
 
 function handleCapture(input) {
@@ -1773,7 +1765,6 @@ function handleCapture(input) {
 
   const previous = readTokenState(store);
   const merged = Object.assign({}, previous, captured);
-  const fingerprintChanged = capturedFingerprint(merged) !== capturedFingerprint(previous);
   writeTokenState(store, merged);
 
   // 捕获通知默认关闭（captureNotify=1 时开启；需要重抓 token 时临时打开）

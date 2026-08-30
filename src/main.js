@@ -121,15 +121,6 @@ function extractCaptureFields(request, response) {
   return result;
 }
 
-function capturedFingerprint(fields) {
-  return [
-    fields.refreshToken || "",
-    fields.token || "",
-    fields.oauthAccessToken || "",
-    fields.authorization || "",
-  ].join("|");
-}
-
 /* ---------------- 捕获处理 ---------------- */
 
 function handleCapture(input) {
@@ -145,7 +136,6 @@ function handleCapture(input) {
 
   const previous = readTokenState(store);
   const merged = Object.assign({}, previous, captured);
-  const fingerprintChanged = capturedFingerprint(merged) !== capturedFingerprint(previous);
   writeTokenState(store, merged);
 
   // 捕获通知默认关闭（captureNotify=1 时开启；需要重抓 token 时临时打开）

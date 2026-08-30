@@ -250,6 +250,7 @@ async function runShareTask(context, report) {
     } else {
       articleId = await getFirstArticle(context);
       taskConfig.articleId = articleId;
+      taskConfig.shareContentURL = buildShareUrl(articleId);
     }
     const shareContext = Object.assign({}, context, { config: taskConfig });
 
