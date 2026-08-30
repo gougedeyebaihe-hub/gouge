@@ -544,10 +544,10 @@ function testPluginFormat() {
   const expectedParams = [
     "refreshToken", "deviceId", "deviceType", "appVersion", "articleId",
     "xCaKey", "appSecret", "appCode", "shareEnabled", "autoRunOnCapture",
-    "oncePerDay", "debug", "captureNotify",
+    "oncePerDay", "debug", "captureNotify", "cronTime", "retryCron",
   ];
   const argumentLines = argumentSection.split("\n").map((line) => line.trim()).filter(Boolean);
-  assert("[Argument] 共 13 个参数", argumentLines.length === 13, "got " + argumentLines.length);
+  assert("[Argument] 共 15 个参数", argumentLines.length === 15, "got " + argumentLines.length);
   expectedParams.forEach((name) => {
     assert("[Argument] 含 " + name, argumentLines.some((line) => line.startsWith(name + " = ")));
   });
@@ -579,7 +579,29 @@ function testPluginFormat() {
   const manualLine = scriptLines.find((line) => line.startsWith("generic"));
   assert("generic 手动触发脚本存在（tag=lynkco-manual）", Boolean(manualLine) && manualLine.includes("tag=lynkco-manual"), manualLine || "");
   const placeholders = Array.from(PLUGIN.matchAll(/\{([a-zA-Z0-9_]+)\}/g), (match) => match[1]);
-  assert("占位符覆盖全部 13 参数", new Set(placeholders).size === 13 && placeholders.length >= 13);
+  assert("占位符覆盖全部 15 参数", new Set(placeholders).size === 15 && placeholders.length >= 15);
+
+  // cron 时刻参数化（cron {cronTime} / {retryCron}）
+  assert(
+    "签到 cron 行使用 {cronTime} 模板",
+    scriptLines.some((line) => line.startsWith("cron {cronTime} ") && line.includes("tag=lynkco-daily-0001")),
+  );
+  assert(
+    "重试 cron 行使用 {retryCron} 模板",
+    scriptLines.some((line) => line.startsWith("cron {retryCron} ") && line.includes("tag=lynkco-daily-0301")),
+  );
+  assert(
+    "cron 行无硬编码时刻",
+    scriptLines.filter((line) => line.startsWith("cron ")).every((line) => !/cron "\d/.test(line)),
+  );
+  assert(
+    "cronTime select 首项为 1 0 * * *",
+    argumentLines.some((line) => line.startsWith('cronTime = select,"1 0 * * *"')),
+  );
+  assert(
+    "retryCron select 首项为 1 3 * * *",
+    argumentLines.some((line) => line.startsWith('retryCron = select,"1 3 * * *"')),
+  );
 
   // 6) [MITM] 主机齐全
   const mitmLine = PLUGIN.split("[MITM]")[1].split("\n").map((line) => line.trim()).filter(Boolean)[0];
